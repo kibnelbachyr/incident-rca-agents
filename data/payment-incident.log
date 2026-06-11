@@ -1,0 +1,36 @@
+2025-11-18 13:58:42 INFO  [ci-cd]       build payment-api v2.4.1 succeeded (commit a91f3c2)
+2025-11-18 14:00:11 INFO  [deploy]      payment-api v2.4.1 released to prod (rolling, 6 pods)
+2025-11-18 14:00:12 INFO  [config]      applied config: db.max_pool_size=20 (was 40)
+2025-11-18 14:01:30 INFO  [payment-api] healthcheck OK on all pods
+2025-11-18 14:05:03 INFO  [payment-api] tx volume nominal: 142 tx/min, error_rate 0.18%
+2025-11-18 14:12:47 INFO  [payment-api] tx volume rising: 168 tx/min (promo campaign)
+2025-11-18 14:16:22 WARN  [db-pool]     pool usage 70% (14/20)
+2025-11-18 14:18:02 WARN  [db-pool]     pool usage 85% (17/20)
+2025-11-18 14:20:55 WARN  [db-pool]     pool usage 95% (19/20)
+2025-11-18 14:22:47 WARN  [db-pool]     pool usage 100% (20/20) - no idle connections
+2025-11-18 14:23:09 INFO  [payment-api] tx_99201 initiated amount=49.99 EUR processor=stripe
+2025-11-18 14:23:14 WARN  [db-pool]     connection request queued (queue depth 6)
+2025-11-18 14:23:15 ERROR [db-pool]     connection acquisition timeout after 5000ms
+2025-11-18 14:23:15 ERROR [payment-api] tx_99201 persist failed: could not acquire DB connection
+2025-11-18 14:23:16 ERROR [payment-api] tx_99201 marked FAILED (downstream charge already authorized)
+2025-11-18 14:23:31 WARN  [processor]   stripe API call latency 780ms (p95 baseline 600ms)
+2025-11-18 14:23:48 ERROR [db-pool]     connection acquisition timeout after 5000ms
+2025-11-18 14:23:48 ERROR [payment-api] tx_99214 persist failed: could not acquire DB connection
+2025-11-18 14:24:01 WARN  [payment-api] error_rate climbing: 12% over last 60s
+2025-11-18 14:24:33 WARN  [processor]   stripe API call latency 820ms (p95 baseline 600ms)
+2025-11-18 14:24:50 ERROR [payment-api] error_rate 38% over last 60s - SEV candidate
+2025-11-18 14:25:02 ERROR [db-pool]     connection acquisition timeout after 5000ms (x14 in 60s)
+2025-11-18 14:25:40 WARN  [payment-api] client retries detected: inbound 2.1x baseline
+2025-11-18 14:26:30 WARN  [payment-api] retry storm: inbound 3.4x baseline, amplifying pool pressure
+2025-11-18 14:27:11 ERROR [payment-api] checkout success rate dropped to 61%
+2025-11-18 14:28:00 INFO  [oncall]      PagerDuty alert fired: payment error_rate > 30% (SEV-1)
+2025-11-18 14:29:18 INFO  [processor]   stripe API latency back to 640ms (within normal variance)
+2025-11-18 14:30:05 ERROR [db-pool]     pool still saturated 100% (20/20), queue depth 9
+2025-11-18 14:31:22 INFO  [oncall]      investigating: hypotheses = (a) stripe latency (b) db pool
+2025-11-18 14:34:10 INFO  [oncall]      stripe dashboard shows latency normal since 14:29 - hypothesis (a) weak
+2025-11-18 14:35:47 INFO  [oncall]      diff review: v2.4.1 changed db.max_pool_size 40 -> 20
+2025-11-18 14:38:12 INFO  [oncall]      decision: rollback v2.4.1 + restore pool size
+2025-11-18 14:39:50 INFO  [deploy]      rollback to payment-api v2.4.0 started
+2025-11-18 14:41:05 INFO  [db-pool]     pool usage 64% (26/40) - connections recovering
+2025-11-18 14:41:40 INFO  [payment-api] error_rate 1.2% and falling
+2025-11-18 14:43:00 INFO  [payment-api] checkout success rate 98.7% - incident mitigated

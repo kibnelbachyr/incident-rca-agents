@@ -1,0 +1,31 @@
+{
+  "incidents": [
+    {
+      "id": "INC-204",
+      "titre": "Épuisement du pool de connexions après changement de configuration",
+      "services": ["payment-api", "db-pool"],
+      "symptomes": [
+        "connection acquisition timeout",
+        "pool usage 100%",
+        "échec de persistance des transactions",
+        "pic du taux d'erreur peu après un déploiement"
+      ],
+      "cause_racine": "Un déploiement a réduit db.max_pool_size, rendant le pool insuffisant sous charge nominale.",
+      "resolution": "Rollback du déploiement et restauration de la taille du pool à sa valeur précédente. Ajout d'une alerte sur l'utilisation du pool.",
+      "tags": ["db", "pool", "config-change", "deploy", "saturation"]
+    },
+    {
+      "id": "INC-187",
+      "titre": "Pic de latence du processeur de paiement externe (Stripe)",
+      "services": ["payment-api", "processor"],
+      "symptomes": [
+        "latence d'appel Stripe au-dessus du p95 de référence",
+        "timeouts côté processeur",
+        "hausse du taux d'erreur corrélée à la latence externe"
+      ],
+      "cause_racine": "Dégradation transitoire côté fournisseur externe, sans changement interne.",
+      "resolution": "Mise en place d'un circuit breaker et de retries avec backoff sur les appels au processeur ; bascule vers un processeur secondaire si disponible.",
+      "tags": ["processor", "stripe", "latency", "external", "circuit-breaker"]
+    }
+  ]
+}

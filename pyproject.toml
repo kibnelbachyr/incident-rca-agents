@@ -1,0 +1,32 @@
+[project]
+name = "incident-rca-agents"
+version = "0.1.0"
+description = "Demo: orchestrated multi-agent system for payment incident root-cause analysis (Microsoft Agent Framework)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "agent-framework>=1.8.0",
+  "agent-framework-azure-ai-search>=1.0.0b260521",
+  "azure-identity>=1.25.0",
+  "azure-search-documents>=11.7.0b2",
+  "pydantic>=2.10",
+  "pydantic-settings>=2.6",
+  "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
