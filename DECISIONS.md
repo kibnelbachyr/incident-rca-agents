@@ -74,3 +74,53 @@ de contexte + justification par decision, ordre chronologique.
     est un objet de donnees ; aucun executeur n'appelle d'API d'infrastructure
     reelle. "Executer" = afficher le plan dans le rapport CLI apres
     approbation humaine.
+
+12. **Pas de `from __future__ import annotations` dans `executors.py`.**
+    `@response_handler` (sur `HumanApprovalExecutor.handle_response`)
+    introspecte la signature via `inspect.signature(...).annotation` SANS
+    resoudre les chaines PEP 563 ; avec l'import `__future__`,
+    `WorkflowContext[SharedContext, SharedContext]` devient une chaine et
+    `_validate_response_handler_signature` echoue (`ValueError: ... must be
+    annotated as WorkflowContext...`). Tous les types utilises sont importes
+    en tete de fichier, donc retirer l'import futur est sans risque sous
+    Python 3.11+.
+
+13. **`ctx.yield_output(context)` transmet une reference directe (pas une
+    copie) au `SharedContext` mutable.** Apres un `run()` complet, tous les
+    evenements `type="output"` du resultat partagent donc le MEME objet
+    final : les champs reaffectes (ex. `root_cause`, `log_analysis`) ne
+    refletent que la derniere valeur si inspectes a posteriori, alors que les
+    champs accumules par `.append()`/`.extend()` (`root_cause_history`,
+    `evidence_log`) conservent l'historique complet. Les tests
+    d'orchestration lisent donc `root_cause_history` pour distinguer les deux
+    passages de `RootCause`. En streaming (`stream=True`), chaque
+    `event.data` reste un instantane pertinent au moment de l'emission.
+
+14. **`HumanApprovalExecutor` garde le `SharedContext` complet sur
+    `self._context`** (attribut d'instance) entre `handle()` (qui emet
+    `request_info`) et `@response_handler handle_response()` (qui recoit la
+    reponse). `RemediationApprovalRequest` ne porte qu'un sous-ensemble
+    (incident, root_cause, kb_matches) car c'est ce sous-ensemble qui doit
+    etre presente a l'humain / serialise dans l'evenement `request_info` ; le
+    contexte complet, lui, doit reprendre son chemin dans le graphe via
+    `ctx.send_message`. Ce pattern fonctionne car le `Workflow` et ses
+    executeurs persistent entre les deux appels `workflow.run()` (premier run
+    qui pause, puis `run(responses={...})`).
+
+15. **Refus humain = `ctx.yield_output(context)` au lieu de
+    `ctx.send_message(context)`** dans `handle_response`. Aucune arete ne
+    part de `human_approval` vers un noeud terminal alternatif : c'est
+    l'ABSENCE de `send_message` qui arrete le graphe (plus aucun executeur a
+    invoquer), tandis que `yield_output` produit la seule sortie observable
+    (`approved=False`, `remediation_plan=None`, `report=None`). Conforme a
+    SPEC.md/CLAUDE.md : aucun plan n'est genere ni affiche sans approbation.
+
+16. **`needs_more_evidence` est une closure qui capture `settings`** (et non
+    une fonction pure `(context, settings)`), car `Case(condition:
+    Callable[[Any], bool], target=...)` n'accepte qu'un seul argument (le
+    `SharedContext` achemine sur l'arete). `CONFIDENCE_THRESHOLD` /
+    `MAX_REFLECTION_LOOPS` ne font pas partie du contrat de donnees ; ils sont
+    injectes via la portee de `build_workflow(settings)`, qui est aussi
+    l'endroit naturel ou `light_client`/`strong_client` et les agents
+    partages (`log_analyzer_agent`, `kb_search_agent`, reutilises par
+    `GatherEvidenceExecutor`) sont construits.
