@@ -13,8 +13,9 @@ Deux façons d'exécuter la démo, même orchestrateur :
 Le tout est **déployable sur Azure** via Bicep + Azure Developer CLI
 (`azd up`, voir `infra/`).
 
-Pour aller plus loin : `CLAUDE.md` (stack et contraintes du projet),
-`SPEC.md` (spécification détaillée et contrats d'agents),
+Pour aller plus loin : `docs/` (documentation détaillée — composants,
+fonctionnement interne, déploiement, démo), `CLAUDE.md` (stack et contraintes
+du projet), `SPEC.md` (spécification détaillée et contrats d'agents),
 `scenario-demo-incident-paiement.md` (déroulé de présentation pas à pas) et
 `DECISIONS.md` (journal des choix d'architecture pris en autonomie).
 
@@ -249,6 +250,8 @@ tests/
 ├── api/             # tests SSE de /api/runs (approbation + refus)
 ├── orchestrator/    # test de bout en bout (8 critères de SPEC.md section 8)
 └── tools/           # persistance locale
+
+docs/                # documentation détaillée (architecture, fonctionnement, déploiement, démo)
 ```
 
 ## Pistes d'évolution (hors périmètre de la démo)
@@ -263,6 +266,11 @@ tests/
 
 ## Aller plus loin
 
+- `docs/` — documentation détaillée : [`docs/architecture.md`](docs/architecture.md)
+  (composants, contrats, conception), [`docs/how-it-works.md`](docs/how-it-works.md)
+  (boucle de réflexion, HITL, flux SSE), [`docs/deployment.md`](docs/deployment.md)
+  (dev local, Docker, Azure/azd, configuration) et
+  [`docs/demo-guide.md`](docs/demo-guide.md) (déroulé de démo pas à pas, CLI et UI).
 - `SPEC.md` — contrats JSON détaillés, topologie d'orchestration, critères
   d'acceptation, architecture de déploiement Azure.
 - `DECISIONS.md` — choix d'architecture pris en autonomie et leur

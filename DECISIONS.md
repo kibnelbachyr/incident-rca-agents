@@ -237,3 +237,21 @@ de contexte + justification par decision, ordre chronologique.
     d'indexation de `data/knowledge_base.json` un `KB_MODE=azure_search` avec
     index vide casserait le critere d'acceptation 2 (DECISIONS.md #8) ; un
     utilisateur peut basculer manuellement apres indexation.
+
+23. **Documentation detaillee dans `docs/`, en complement (pas en
+    remplacement) de `SPEC.md`/`DECISIONS.md`/`scenario-demo-incident-paiement.md`** :
+    quatre fichiers a portee de lecture distincte -
+    `architecture.md` (composants, contrats `src/models.py`, principes de
+    conception/contraintes non negociables), `how-it-works.md` (mecanique
+    interne - propagation du `SharedContext`, topologie de
+    `build_workflow`, boucle de reflexion, HITL via `request_info`/
+    `response_handler`, protocole SSE des deux phases de `src/api/runs.py`),
+    `deployment.md` (reference de configuration, Docker, `azd`/Bicep,
+    tableau des ressources et roles RBAC) et `demo-guide.md` (deroule
+    pratique CLI/UI avec les valeurs reelles du `StubChatClient` -
+    confiance 0.55 -> 0.88 -, variantes refus humain / Azure OpenAI reel).
+    `SPEC.md` reste la reference des contrats JSON et criteres
+    d'acceptation, `DECISIONS.md` le journal des choix techniques, et
+    `scenario-demo-incident-paiement.md` le script de presentation (message,
+    minutage) : `docs/` y renvoie plutot que de les dupliquer. Linke depuis
+    `README.md` ("Aller plus loin") via `docs/README.md` (index).
