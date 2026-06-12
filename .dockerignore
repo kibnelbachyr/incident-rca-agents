@@ -20,3 +20,14 @@ tests/
 .vscode/
 .idea/
 .DS_Store
+
+# Le frontend est construit dans l'image (etape "frontend-build" du
+# Dockerfile) ; on n'embarque jamais l'arbre node_modules/dist de l'hote.
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+
+# Infrastructure / azd (pas necessaire dans l'image applicative)
+infra/
+.azure/
+azure.yaml

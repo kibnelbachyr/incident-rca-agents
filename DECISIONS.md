@@ -166,3 +166,20 @@ de contexte + justification par decision, ordre chronologique.
     deduit (noeud + aretes `root_cause -> human_approval -> remediation`
     marques visites/traverses) de la presence d'un `step` `remediation` dans
     le flux, plutot que d'une transition consecutive explicite.
+
+20. **`Dockerfile` reconstruit pour servir l'API + l'UI (plus le CLI)** :
+    `ENTRYPOINT` passe de `python -m src.main` a
+    `uvicorn src.api.app:app --host 0.0.0.0 --port 8000`
+    (`src/api/app.py`, DECISIONS.md #18, monte `frontend/dist/` via
+    `StaticFiles` si present). Etape 1 (`node:20-slim`, alias
+    `frontend-build`) execute `npm ci` + `npm run build` sur `frontend/` et
+    produit `frontend/dist/` ; etape 2 (`python:3.11-slim`) installe le
+    paquet (`pip install -e .`, conserve `src.config.REPO_ROOT` aligne sur
+    `/app` pour les chemins par defaut `data/*.json|log` et
+    `frontend/dist/`) puis copie `frontend/dist/` depuis l'etape 1.
+    `.dockerignore` exclut desormais `frontend/node_modules/`,
+    `frontend/dist/`, `frontend/*.tsbuildinfo` (arbre hote jamais embarque,
+    seul le build reproductible de l'etape 1 l'est) ainsi que `infra/`,
+    `.azure/`, `azure.yaml` (artefacts azd/Bicep sans rapport avec l'image
+    applicative). `EXPOSE 8000` (port d'ingress Container Apps) et
+    `ENV AZURE_AUTH_MODE=managed_identity` restent inchanges.
