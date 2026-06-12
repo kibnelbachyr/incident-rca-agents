@@ -1,0 +1,15 @@
+# yaml-language-server: $schema=https://raw.githubusercontent.com/Azure/azure-dev/main/schemas/v1.0/azure.yaml.json
+
+# Config Azure Developer CLI (azd). `azd up` provisionne `infra/` (Bicep) puis
+# construit `Dockerfile` et le deploie sur le Container App tagge
+# `azd-service-name: api` (voir infra/resources.bicep).
+name: incident-rca-agents
+
+services:
+  api:
+    project: .
+    language: docker
+    host: containerapp
+    docker:
+      path: ./Dockerfile
+      context: .

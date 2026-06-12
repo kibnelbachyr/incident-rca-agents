@@ -5,6 +5,14 @@ diagnostique un incident sur un système de paiement : logs bruts → incident
 structuré → recherche de précédents → cause racine (avec boucle de
 réflexion) → remédiation (validée par un humain) → rapport final.
 
+Deux façons d'exécuter la démo, même orchestrateur :
+- **CLI** (`python -m src.main`) — streaming texte dans le terminal.
+- **UI web** (FastAPI + React, `src/api/` + `frontend/`) — graphe
+  d'orchestration animé, validation humaine et historique des exécutions.
+
+Le tout est **déployable sur Azure** via Bicep + Azure Developer CLI
+(`azd up`, voir `infra/`).
+
 Pour aller plus loin : `CLAUDE.md` (stack et contraintes du projet),
 `SPEC.md` (spécification détaillée et contrats d'agents),
 `scenario-demo-incident-paiement.md` (déroulé de présentation pas à pas) et
@@ -54,6 +62,8 @@ Aucun identifiant Azure n'est requis pour exécuter la démo : tant que
 agents utilisent un `StubChatClient` déterministe qui rejoue le scénario de
 `scenario-demo-incident-paiement.md` (`DECISIONS.md` #3-4).
 
+### CLI
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
@@ -76,6 +86,32 @@ Approuver le passage à la remédiation ? [o/N] :
 - toute autre réponse (ou une entrée non interactive / EOF) → le workflow
   s'arrête immédiatement, sans générer ni afficher de plan de remédiation.
 
+### Interface web (FastAPI + React)
+
+Deux process en développement :
+
+```bash
+# Terminal 1 : API (port 8000)
+pip install -e ".[dev]"
+uvicorn src.api.app:app --reload
+
+# Terminal 2 : frontend (port 5173, proxy /api -> :8000 via vite.config.ts)
+cd frontend
+npm install
+npm run dev
+```
+
+Ouvrir http://localhost:5173 : « Lancer le diagnostic » démarre une exécution
+(`POST /api/runs`, SSE) et anime le graphe d'orchestration (`TopologyGraph`)
+au fil des évènements `step`, jusqu'à la carte de validation humaine
+(`ApprovalCard`) — approuver/refuser appelle `POST /api/runs/{run_id}/approval`.
+L'onglet historique (`History`) liste les exécutions terminées et persistées
+(`GET /api/history`, `src/tools/persistence.py`).
+
+En production (image Docker / Azure), un seul process : `frontend/dist/`
+(`npm run build`) est servi par FastAPI via `StaticFiles`, sur le même port
+que l'API (`src/api/app.py`) — pas de CORS à gérer.
+
 ## Tests
 
 ```bash
@@ -90,6 +126,12 @@ pytest
   de `SPEC.md` section 8 : incident SEV-1, deux précédents KB, reboucle sous
   le seuil de confiance, cause racine `max_pool_size` au 2e passage, pause
   HITL, plan + rapport après approbation, sorties observables, boucle bornée.
+- `tests/api/test_runs.py` — les deux phases SSE de `/api/runs`
+  (`run_started`/`step`/`approval_required`/`done`), approbation et refus.
+- `tests/tools/test_persistence.py` — `LocalPersistenceStore`.
+
+Frontend : `cd frontend && npm run build` (vérifie les types via `tsc -b`
+puis build Vite vers `frontend/dist/`).
 
 ## Configuration
 
@@ -132,27 +174,71 @@ Rien n'est codé en dur.
 
 ```bash
 docker build -t incident-rca-agents .
-docker run --rm -it incident-rca-agents
+docker run --rm -it -p 8000:8000 incident-rca-agents
 ```
 
-L'image installe le projet en mode éditable (`pip install -e .`) afin que
-`src.config.REPO_ROOT` reste aligné sur `/app` (où `data/` est copié) : les
+Ouvrir http://localhost:8000 : l'image (build multi-étapes, `Dockerfile`)
+sert l'API **et** l'UI buildée (`frontend/dist/`) sur le même port via un
+seul process `uvicorn src.api.app:app` (DECISIONS.md #20). `pip install -e .`
+garde `src.config.REPO_ROOT` aligné sur `/app` (où `data/` est copié) : les
 chemins par défaut (`data/payment-incident.log`, `data/knowledge_base.json`)
-fonctionnent donc sans configuration supplémentaire. `AZURE_AUTH_MODE=managed_identity`
+fonctionnent sans configuration supplémentaire. `AZURE_AUTH_MODE=managed_identity`
 est défini par défaut pour un déploiement Azure Container Apps avec identité
 managée (`DefaultAzureCredential`) ; passez vos variables `AZURE_*` via
-`docker run -e ...` ou les secrets Container Apps.
+`docker run -e ...` ou les secrets Container Apps. En local hors-ligne (sans
+`AZURE_OPENAI_ENDPOINT`), `StubChatClient` est utilisé et aucune variable
+n'est requise.
+
+## Déploiement sur Azure (azd)
+
+`infra/` (Bicep) + `azure.yaml` provisionnent l'architecture cible décrite
+par `CLAUDE.md` et déploient l'image Docker ci-dessus sur Azure Container
+Apps (DECISIONS.md #21-22) : Azure OpenAI (déploiements `gpt-4o` +
+`gpt-4o-mini`), Azure AI Search, Azure Cosmos DB serverless, Container
+Registry, Container Apps Environment + Container App, Log Analytics +
+Application Insights, et une identité managée avec les role assignments
+nécessaires (aucune clé API en clair — `disableLocalAuth: true` sur Azure
+OpenAI et Cosmos DB).
+
+```bash
+# Installer azd : https://aka.ms/azd
+azd auth login
+azd up   # provisionne infra/ puis build + push + déploie l'image Docker
+```
+
+`azd up` demande un nom d'environnement et une région (choisir une région où
+les déploiements GPT-4o / GPT-4o-mini "GlobalStandard" sont disponibles, ex.
+`swedencentral`, `eastus2`) ; l'URL du Container App est affichée à la fin.
+
+Pour faire tourner l'API en local contre les ressources réellement déployées
+(au lieu de `StubChatClient`) :
+
+```bash
+azd env get-values >> .env   # AZURE_OPENAI_ENDPOINT, COSMOS_ENDPOINT, ...
+az login                      # AZURE_AUTH_MODE=cli (défaut) -> AzureCliCredential
+uvicorn src.api.app:app --reload
+```
+
+`KB_MODE` reste `local` par défaut même après `azd up` (l'index Azure AI
+Search est créé vide, voir DECISIONS.md #22). `azd down` supprime toutes les
+ressources de l'environnement.
 
 ## Structure du dépôt
 
 ```
 src/
 ├── agents/          # 6 agents (instructions + contrat pydantic) + clients (stub/Azure OpenAI)
+├── api/             # FastAPI : /api/runs (SSE, 2 phases + HITL), /api/history, /api/meta
 ├── orchestrator/    # graphe WorkflowBuilder : executors + topologie + boucle + HITL
-├── tools/           # base de connaissances (local / Azure AI Search)
+├── tools/           # base de connaissances (local / Azure AI Search) + persistance (local / Cosmos DB)
 ├── config.py        # Settings (pydantic-settings, lit .env)
 ├── models.py        # contrats pydantic (SPEC.md section 4)
 └── main.py          # CLI : streaming des sorties + validation humaine
+
+frontend/            # UI React + Vite : graphe d'orchestration, validation humaine, historique
+
+infra/               # Bicep (azd) : main.bicep (resource group) + resources.bicep
+azure.yaml           # config Azure Developer CLI (`azd up`)
 
 data/
 ├── payment-incident.log   # logs d'exemple (incident SEV-1)
@@ -160,20 +246,20 @@ data/
 
 tests/
 ├── agents/          # un test isolé par agent
-└── orchestrator/    # test de bout en bout (8 critères de SPEC.md section 8)
+├── api/             # tests SSE de /api/runs (approbation + refus)
+├── orchestrator/    # test de bout en bout (8 critères de SPEC.md section 8)
+└── tools/           # persistance locale
 ```
 
 ## Pistes d'évolution (hors périmètre de la démo)
 
-`CLAUDE.md` décrit une architecture de déploiement cible plus large que ce
-que couvre cette démo :
-
-- exposer l'orchestrateur via une API (Azure Container Apps) plutôt que le
-  CLI `src/main.py` ;
-- persister les incidents/décisions dans Azure Cosmos DB ;
-- brancher la télémétrie OpenTelemetry du framework sur Application Insights
-  (`APPLICATIONINSIGHTS_CONNECTION_STRING`) ;
-- peupler un index Azure AI Search réel à partir de `data/knowledge_base.json`.
+- Peupler un index Azure AI Search à partir de `data/knowledge_base.json`
+  (pipeline d'indexation), puis basculer `KB_MODE=azure_search` — l'index et
+  le rôle `Search Index Data Reader` sont déjà provisionnés par `azd up`
+  (DECISIONS.md #22).
+- Brancher la télémétrie OpenTelemetry du framework sur Application Insights
+  — `APPLICATIONINSIGHTS_CONNECTION_STRING` est déjà provisionné et injecté
+  par `infra/`, mais l'application ne l'exploite pas encore.
 
 ## Aller plus loin
 

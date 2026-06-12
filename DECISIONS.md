@@ -183,3 +183,57 @@ de contexte + justification par decision, ordre chronologique.
     `.azure/`, `azure.yaml` (artefacts azd/Bicep sans rapport avec l'image
     applicative). `EXPOSE 8000` (port d'ingress Container Apps) et
     `ENV AZURE_AUTH_MODE=managed_identity` restent inchanges.
+
+21. **Provisionnement Azure via Bicep + Azure Developer CLI (azd)** :
+    `azure.yaml` declare un seul service `api` (`language: docker`, `host:
+    containerapp`, `docker.path: ./Dockerfile`) ; `infra/main.bicep` (portee
+    `subscription`) cree le resource group puis delegue a
+    `infra/resources.bicep` (portee resource group, parametre via
+    `infra/main.parameters.json` -> `${AZURE_ENV_NAME}` / `${AZURE_LOCATION}` /
+    `${AZURE_PRINCIPAL_ID}`). Conforme a CLAUDE.md "Stack technique"/"Hebergement
+    cible" : `resources.bicep` provisionne Log Analytics + Application Insights,
+    une identite managee utilisateur (attachee au Container App), un Container
+    Registry (+role `AcrPull`), un compte Azure OpenAI avec deux deploiements
+    (`gpt-4o` et `gpt-4o-mini`, sku `GlobalStandard`, versions `2024-08-06` /
+    `2024-07-18` verifiees via Microsoft Learn), Azure AI Search (sku `basic`,
+    pour le RAG), Cosmos DB serverless (base `incidents` / conteneur `records`,
+    partition key `/id`, alignes sur `src/tools/persistence.py`), un Container
+    Apps Environment et le Container App (`tags: {'azd-service-name': 'api'}`,
+    ingress externe port 8000, image placeholder
+    `mcr.microsoft.com/azuredocs/containerapps-helloworld:latest` remplacee par
+    `azd deploy`). Deux fichiers Bicep (et non une modularisation par service)
+    pour rester lisible en demo ; les deux compilent sans erreur via le Bicep
+    CLI standalone (`bicep build`, v0.44.1).
+
+22. **Aucun secret en clair sur les ressources deployees** : `disableLocalAuth:
+    true` sur le compte Azure OpenAI et sur le compte Cosmos DB desactive les
+    cles API/maitre — toute l'authentification data-plane passe par des role
+    assignments Microsoft Entra ID (`Cognitive Services OpenAI User`, `Search
+    Index Data Reader`, le role Cosmos DB integre "Built-in Data Contributor"
+    `00000000-0000-0000-0000-000000000002` reference directement par GUID sans
+    `sqlRoleDefinitions` custom, et `AcrPull`), tous accordes au
+    `principalId`/`clientId` de l'identite managee du Container App. Celui-ci
+    recoit aussi `AZURE_AUTH_MODE=managed_identity` et
+    `AZURE_CLIENT_ID=<identity.clientId>` (necessaire pour que
+    `DefaultAzureCredential` choisisse cette identite utilisateur plutot qu'une
+    autre). Un parametre optionnel `principalId` (rempli par azd via
+    `AZURE_PRINCIPAL_ID`, vide par defaut) accorde les memes roles data-plane au
+    compte du developpeur, pour pointer `AZURE_AUTH_MODE=cli` (`az login`) vers
+    les vraies ressources deployees — les sorties `AZURE_OPENAI_ENDPOINT` /
+    `AZURE_AI_SEARCH_ENDPOINT` / `COSMOS_ENDPOINT` / ... de `main.bicep`
+    correspondent 1:1 aux alias de `Settings` (`src/config.py`) et sont
+    recuperables via `azd env get-values` pour completer un `.env` local.
+    `openAiChatDeploymentLight` porte un `dependsOn` explicite vers
+    `openAiChatDeployment` : Azure OpenAI rejette les operations de deploiement
+    concurrentes sur le meme compte, donc sans cette dependance ARM peut
+    paralleliser les deux et l'un des deux echoue. Le Container App garde
+    `scale: {minReplicas: 1, maxReplicas: 1}` : `app.state.runs`
+    (src/api/runs.py, DECISIONS.md #18) est un registre en memoire par
+    processus, donc plusieurs replicas casseraient la reprise HITL. `KB_MODE`
+    n'est volontairement PAS positionne sur le Container App (reste
+    `"local"`, valeur par defaut de `Settings`) : Azure AI Search est
+    provisionne (RAG, CLAUDE.md) et `AZURE_AI_SEARCH_ENDPOINT`/`_INDEX` sont
+    injectes avec le role `Search Index Data Reader`, mais sans pipeline
+    d'indexation de `data/knowledge_base.json` un `KB_MODE=azure_search` avec
+    index vide casserait le critere d'acceptation 2 (DECISIONS.md #8) ; un
+    utilisateur peut basculer manuellement apres indexation.
