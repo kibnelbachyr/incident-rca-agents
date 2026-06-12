@@ -124,3 +124,45 @@ de contexte + justification par decision, ordre chronologique.
     l'endroit naturel ou `light_client`/`strong_client` et les agents
     partages (`log_analyzer_agent`, `kb_search_agent`, reutilises par
     `GatherEvidenceExecutor`) sont construits.
+
+17. **Persistance via un `Protocol` `PersistenceStore`** (src/tools/persistence.py),
+    sur le meme modele que `KnowledgeBase` (DECISIONS.md #8) :
+    `LocalPersistenceStore` (fichiers JSON sous `output/runs/`, mode par
+    defaut/hors-ligne) et `CosmosPersistenceStore`
+    (`azure.cosmos.aio.CosmosClient`, partition key `/id`). `get_persistence_store(settings)`
+    choisit selon `settings.cosmos_endpoint`. Le conteneur Cosmos est suppose
+    deja provisionne par Bicep (azd) : le code applicatif ne fait que du
+    data-plane (`upsert_item`/`read_item`/`query_items`), jamais de creation
+    de base/conteneur, et utilise `AzureCliCredential`/`DefaultAzureCredential`
+    selon `AZURE_AUTH_MODE` (variantes async de DECISIONS.md, coherentes avec
+    `src/agents/clients.py`).
+
+18. **API FastAPI en deux phases SSE** (`src/api/runs.py`) au lieu d'un
+    websocket ou de `agent_framework_devui`/`ag_ui` (generiques, non adaptes a
+    l'UI du domaine) : `POST /api/runs` cree un `Workflow`
+    (`build_workflow`), le garde dans `app.state.runs` (registre en memoire
+    `{run_id: RunState}`) et streame un evenement `step` par sortie d'agent
+    (y compris la boucle `RootCause <-> GatherEvidence`) jusqu'a
+    `request_info` (`approval_required`). `POST /api/runs/{id}/approval`
+    reprend le MEME objet `Workflow` via `workflow.run(responses={request_id:
+    bool})` : conserver l'instance est necessaire car `HumanApprovalExecutor`
+    porte l'etat sur `self._context` entre les deux appels (DECISIONS.md
+    #14). Le refus (DECISIONS.md #15) ne produit qu'un `step`
+    `human_approval` puis `done` ; l'approbation produit `remediation` +
+    `summary` puis persiste le `SharedContext` final via `PersistenceStore`
+    avant `done`. `EventSource` ne permettant pas le POST, le flux est
+    consomme cote client via `fetch` + `ReadableStream` (`frontend/src/api.ts`).
+
+19. **Frontend React + Vite, scaffolding minimal** (`frontend/`) : en dev,
+    `vite.config.ts` proxy `/api` vers `127.0.0.1:8000` (pas de CORS a gerer) ;
+    en prod, `frontend/dist/` est servi par FastAPI via `StaticFiles` au
+    montage `/` (`src/api/app.py`). `frontend/src/types.ts` reprend 1:1 les
+    contrats de `src/models.py` + les reponses de `src/api/*.py` (un seul jeu
+    de contrats cote backend, ce fichier reflete la forme JSON — tenu a jour
+    manuellement, pas de generation de schema pour rester simple en demo).
+    `TopologyGraph` anime le graphe a 8 noeuds de `src/orchestrator/graph.py` ;
+    comme `HumanApprovalExecutor` n'emet un `step` qu'en cas de refus
+    (DECISIONS.md #15), le passage par la porte HITL en cas d'approbation est
+    deduit (noeud + aretes `root_cause -> human_approval -> remediation`
+    marques visites/traverses) de la presence d'un `step` `remediation` dans
+    le flux, plutot que d'une transition consecutive explicite.
