@@ -25,3 +25,13 @@ venv/
 *.log
 !data/*.log
 output/
+
+# Frontend (frontend/, npm run build / tsc -b)
+frontend/node_modules/
+frontend/dist/
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts
+
+# Azure Developer CLI (azd) local state
+.azure/
