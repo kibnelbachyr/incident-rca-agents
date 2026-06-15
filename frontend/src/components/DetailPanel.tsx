@@ -13,7 +13,7 @@ import type {
 } from "../types";
 import ApprovalCard from "./ApprovalCard";
 import ConfidenceBar from "./ConfidenceBar";
-import type { Phase } from "./RadarHUD";
+import type { Phase } from "./PipelineHUD";
 
 const STEP_TITLES: Record<ExecutorId, string> = {
   log_analyzer: "Log Analyzer",

@@ -205,12 +205,12 @@ body::after {
   background: var(--alert-soft);
 }
 
-/* --- Main: radar | detail panel ------------------------------------------ */
+/* --- Main: pipeline | detail panel ----------------------------------------- */
 
 .main {
   display: grid;
-  grid-template-columns: minmax(320px, 1fr) minmax(380px, 1.35fr);
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-columns: 1fr;
+  grid-template-rows: minmax(220px, 32vh) minmax(0, 1fr) auto;
   gap: 0.75rem 1rem;
   padding: 0.75rem 1.25rem;
   overflow: hidden;
@@ -232,253 +232,33 @@ body::after {
   gap: 0.75rem 1.25rem;
 }
 
-/* --- Radar HUD ------------------------------------------------------------ */
+/* --- Pipeline HUD ------------------------------------------------------------ */
 
-.radar-hud {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(0, 255, 166, 0.05), transparent 65%),
-    var(--panel);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 0.75rem;
+.pipeline-hud {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
 }
 
-.radar-hud__frame {
-  position: relative;
-  width: 100%;
-  height: 100%;
-  max-width: 560px;
-  max-height: 560px;
-  margin: 0 auto;
-}
-
-.radar-hud__svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-}
-
-.radar-hud__sweep {
-  position: absolute;
-  inset: 4%;
-  border-radius: 50%;
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    var(--primary-glow) 6deg,
-    transparent 70deg,
-    transparent 360deg
-  );
-  opacity: 0;
-  pointer-events: none;
-  mix-blend-mode: screen;
-  transition: opacity 0.4s ease;
-}
-
-.radar-hud__sweep--active {
-  opacity: 0.9;
-  animation: radar-spin 4s linear infinite;
-}
-
-.radar-hud__sweep--alert {
-  background: conic-gradient(
-    from 0deg,
-    transparent 0deg,
-    var(--alert-glow) 10deg,
-    transparent 90deg,
-    transparent 360deg
-  );
-  opacity: 0.7;
-  animation: radar-spin 2.4s linear infinite;
-}
-
-@keyframes radar-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-.radar-ring {
-  fill: none;
-  stroke: var(--border);
-  stroke-width: 1;
-}
-
-.radar-ring--outer {
-  stroke: var(--border-bright);
-}
-
-.radar-crosshair {
-  stroke: var(--border);
-  stroke-width: 1;
-  stroke-dasharray: 2 6;
-}
-
-.radar-chord {
-  fill: none;
-  stroke: var(--border-bright);
-  stroke-width: 1.5;
-  transition: stroke 0.3s ease, stroke-width 0.3s ease, opacity 0.3s ease;
-  opacity: 0.6;
-}
-
-.radar-chord--traveled {
-  stroke: var(--accent);
-  opacity: 0.9;
-}
-
-.radar-chord--loop {
-  stroke-dasharray: 4 4;
-}
-
-.radar-node {
-  cursor: default;
-  transition: transform 0.2s ease;
-}
-
-.radar-node--visited,
-.radar-node--active {
-  cursor: pointer;
-}
-
-.radar-node__halo {
-  fill: none;
-  stroke: var(--border-bright);
-  stroke-width: 1;
-  opacity: 0;
-  transition: opacity 0.3s ease, stroke 0.3s ease;
-}
-
-.radar-node__core {
-  fill: var(--panel-elevated);
-  stroke: var(--border-bright);
-  stroke-width: 1.5;
-  transition: fill 0.3s ease, stroke 0.3s ease, filter 0.3s ease;
-}
-
-.radar-node__code {
-  fill: var(--text-dim);
-  font-family: var(--font-display);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  pointer-events: none;
-  transition: fill 0.3s ease;
-}
-
-.radar-node__label {
-  fill: var(--text-faint);
-  font-family: var(--font-mono);
-  font-size: 9.5px;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  pointer-events: none;
-  transition: fill 0.3s ease, opacity 0.3s ease;
-  opacity: 0;
-}
-
-.radar-node--visited .radar-node__core {
-  fill: var(--accent-soft);
-  stroke: var(--accent);
-}
-
-.radar-node--visited .radar-node__code {
-  fill: var(--accent);
-}
-
-.radar-node--visited .radar-node__label {
-  fill: var(--text-dim);
-  opacity: 0.85;
-}
-
-.radar-node--active .radar-node__core {
-  fill: var(--primary-soft);
-  stroke: var(--primary);
-  filter: drop-shadow(0 0 6px var(--primary-glow));
-}
-
-.radar-node--active .radar-node__code {
-  fill: var(--primary);
-}
-
-.radar-node--active .radar-node__label {
-  fill: var(--primary);
-  opacity: 1;
-}
-
-.radar-node--active .radar-node__halo {
-  stroke: var(--primary);
-  opacity: 0.7;
-  animation: radar-pulse 1.4s ease-out infinite;
-}
-
-.radar-node--alert .radar-node__core {
-  fill: var(--alert-soft);
-  stroke: var(--alert);
-  filter: drop-shadow(0 0 6px var(--alert-glow));
-}
-
-.radar-node--alert .radar-node__code {
-  fill: var(--alert);
-}
-
-.radar-node--alert .radar-node__label {
-  fill: var(--alert);
-  opacity: 1;
-}
-
-.radar-node--alert .radar-node__halo {
-  stroke: var(--alert);
-  opacity: 0.7;
-  animation: radar-pulse 1.1s ease-out infinite;
-}
-
-.radar-node--selected .radar-node__core {
-  stroke-width: 2.5;
-}
-
-.radar-node--selected .radar-node__label {
-  opacity: 1;
-}
-
-@keyframes radar-pulse {
-  0% {
-    stroke-width: 1.5;
-    r: 22px;
-    opacity: 0.8;
-  }
-  100% {
-    stroke-width: 0.5;
-    r: 34px;
-    opacity: 0;
-  }
-}
-
-.radar-hud__readout {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+.pipeline-hud__frame {
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: 0.15rem;
-  text-align: center;
-  pointer-events: none;
-  width: 60%;
+  height: 100%;
+  background: radial-gradient(ellipse at 50% -20%, rgba(0, 255, 166, 0.08), transparent 65%), var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 0.85rem 1.25rem;
+  overflow: hidden;
 }
 
-.radar-hud__readout-label {
+.pipeline-hud__readout {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.pipeline-hud__readout-label {
   font-family: var(--font-display);
   font-size: 0.62rem;
   letter-spacing: 0.25em;
@@ -486,7 +266,7 @@ body::after {
   text-transform: uppercase;
 }
 
-.radar-hud__readout-value {
+.pipeline-hud__readout-value {
   font-family: var(--font-display);
   font-size: 0.95rem;
   font-weight: 700;
@@ -496,16 +276,220 @@ body::after {
   text-shadow: 0 0 12px var(--primary-glow);
 }
 
-.radar-hud__readout-value--alert {
+.pipeline-hud__readout-value--alert {
   color: var(--alert);
   text-shadow: 0 0 12px var(--alert-glow);
 }
 
-.radar-hud__readout-run {
-  margin-top: 0.4rem;
+.pipeline-hud__readout-run {
+  margin-left: auto;
   font-size: 0.62rem;
   letter-spacing: 0.1em;
   color: var(--text-faint);
+}
+
+.pipeline-hud__svg {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  display: block;
+}
+
+.pipeline-hud__progress {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+}
+
+.pipeline-hud__progress-fill {
+  height: 100%;
+  background: var(--primary);
+  box-shadow: 0 0 8px var(--primary-glow);
+  transition: width 0.5s ease;
+}
+
+.pipeline-hud__progress-fill--alert {
+  background: var(--alert);
+  box-shadow: 0 0 8px var(--alert-glow);
+}
+
+/* --- Pipeline edges ------------------------------------------------------------ */
+
+.pipeline-edge {
+  fill: none;
+  stroke: var(--border-bright);
+  stroke-width: 2;
+  opacity: 0.5;
+  transition: stroke 0.3s ease, stroke-width 0.3s ease, opacity 0.3s ease, filter 0.3s ease;
+}
+
+.pipeline-edge--traveled {
+  stroke: var(--accent);
+  opacity: 0.9;
+}
+
+.pipeline-edge--active {
+  stroke: var(--primary);
+  stroke-width: 3;
+  opacity: 1;
+  filter: drop-shadow(0 0 6px var(--primary-glow));
+  animation: pipeline-edge-pulse 1s ease-in-out infinite;
+}
+
+.pipeline-edge--loop {
+  stroke-dasharray: 7 6;
+}
+
+.pipeline-edge--loop.pipeline-edge--traveled {
+  stroke: var(--warn);
+  opacity: 0.85;
+}
+
+.pipeline-edge--loop.pipeline-edge--active {
+  stroke: var(--warn);
+  filter: drop-shadow(0 0 6px var(--warn-glow));
+  animation: pipeline-edge-flow 0.7s linear infinite;
+}
+
+@keyframes pipeline-edge-pulse {
+  0%,
+  100% {
+    opacity: 0.7;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@keyframes pipeline-edge-flow {
+  to {
+    stroke-dashoffset: -26px;
+  }
+}
+
+/* --- Pipeline nodes -------------------------------------------------------------- */
+
+.pipeline-node {
+  cursor: default;
+}
+
+.pipeline-node--visited,
+.pipeline-node--active,
+.pipeline-node--alert {
+  cursor: pointer;
+}
+
+.pipeline-node__shape {
+  fill: var(--panel-elevated);
+  stroke: var(--border-bright);
+  stroke-width: 2;
+  transition: fill 0.3s ease, stroke 0.3s ease, filter 0.3s ease;
+}
+
+.pipeline-node__scan {
+  pointer-events: none;
+}
+
+.pipeline-node__code {
+  fill: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  transition: fill 0.3s ease;
+}
+
+.pipeline-node__code--sm {
+  font-size: 13px;
+  letter-spacing: 0.02em;
+}
+
+.pipeline-node__label {
+  fill: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+  pointer-events: none;
+  transition: fill 0.3s ease, opacity 0.3s ease;
+}
+
+.pipeline-node--visited .pipeline-node__shape {
+  fill: var(--accent-soft);
+  stroke: var(--accent);
+}
+
+.pipeline-node--visited .pipeline-node__code {
+  fill: var(--accent);
+}
+
+.pipeline-node--visited .pipeline-node__label {
+  fill: var(--text-dim);
+  opacity: 0.9;
+}
+
+.pipeline-node--active .pipeline-node__shape {
+  fill: var(--primary-soft);
+  stroke: var(--primary);
+  stroke-width: 3;
+  animation: pipeline-node-glow 1.4s ease-in-out infinite;
+}
+
+.pipeline-node--active .pipeline-node__code {
+  fill: var(--primary);
+}
+
+.pipeline-node--active .pipeline-node__label {
+  fill: var(--primary);
+  opacity: 1;
+}
+
+.pipeline-node--alert .pipeline-node__shape {
+  fill: var(--alert-soft);
+  stroke: var(--alert);
+  stroke-width: 3;
+  animation: pipeline-node-glow-alert 1s ease-in-out infinite;
+}
+
+.pipeline-node--alert .pipeline-node__code {
+  fill: var(--alert);
+}
+
+.pipeline-node--alert .pipeline-node__label {
+  fill: var(--alert);
+  opacity: 1;
+}
+
+.pipeline-node--selected .pipeline-node__shape {
+  stroke-width: 3.5;
+}
+
+.pipeline-node--selected .pipeline-node__label {
+  opacity: 1;
+}
+
+@keyframes pipeline-node-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 4px var(--primary-glow));
+  }
+  50% {
+    filter: drop-shadow(0 0 18px var(--primary-glow));
+  }
+}
+
+@keyframes pipeline-node-glow-alert {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 4px var(--alert-glow));
+  }
+  50% {
+    filter: drop-shadow(0 0 18px var(--alert-glow));
+  }
 }
 
 /* --- Detail panel ---------------------------------------------------------- */

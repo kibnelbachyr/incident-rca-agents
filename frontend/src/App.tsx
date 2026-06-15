@@ -5,7 +5,7 @@ import DetailPanel from "./components/DetailPanel";
 import Footer from "./components/Footer";
 import Header, { type View } from "./components/Header";
 import History from "./components/History";
-import RadarHUD, { type Phase } from "./components/RadarHUD";
+import PipelineHUD, { type Phase } from "./components/PipelineHUD";
 import type { ExecutorId, MetaResponse, RemediationApprovalRequest, StepPayload } from "./types";
 
 export default function App() {
@@ -121,7 +121,7 @@ export default function App() {
         </main>
       ) : (
         <main className="main">
-          <RadarHUD
+          <PipelineHUD
             steps={steps}
             phase={phase}
             runId={runId}

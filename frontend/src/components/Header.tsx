@@ -15,7 +15,7 @@ export default function Header({ meta, view, onViewChange }: HeaderProps) {
         <img src="/favicon.svg" alt="" className="header__logo" />
         <div>
           <h1>
-            Incident RCA <span>// Radar</span>
+            Incident RCA <span>// Pipeline</span>
           </h1>
           <p>Multi-agent payment incident diagnostics — live demo</p>
         </div>
