@@ -1,45 +1,116 @@
 import type {
+  ExecutorId,
   Incident,
   IncidentReport,
   KBMatches,
   LogAnalysis,
   MetaResponse,
+  RemediationApprovalRequest,
   RemediationPlan,
   RootCauseHypothesis,
   SharedContext,
   StepPayload,
 } from "../types";
+import ApprovalCard from "./ApprovalCard";
 import ConfidenceBar from "./ConfidenceBar";
+import type { Phase } from "./RadarHUD";
 
-// Titres miroir de `_STEP_TITLES` (src/main.py).
-const STEP_TITLES: Record<string, string> = {
-  log_analyzer: "Agent 1/6 — Log Analyzer : analyse des logs bruts",
-  incident_extractor: "Agent 2/6 — Incident Extractor : extraction de l'incident",
-  kb_search: "Agent 3/6 — KB Search : recherche de precedents",
-  root_cause: "Agent 4/6 — Root Cause : hypothese de cause racine",
-  gather_evidence: "Boucle de reflexion — Gather Evidence : collecte de preuves complementaires",
-  remediation: "Agent 5/6 — Remediation : plan de remediation (propose)",
-  summary: "Agent 6/6 — Summary : rapport final",
-  human_approval: "Validation humaine : remediation refusee",
+const STEP_TITLES: Record<ExecutorId, string> = {
+  log_analyzer: "Log Analyzer",
+  incident_extractor: "Incident Extractor",
+  kb_search: "KB Search",
+  root_cause: "Root Cause Analysis",
+  gather_evidence: "Reflection Loop — Gather Evidence",
+  human_approval: "Human Approval — Rejected",
+  remediation: "Remediation Plan (proposed)",
+  summary: "Final Report",
 };
 
-interface StepCardProps {
-  step: StepPayload;
+const STEP_CODES: Record<ExecutorId, string> = {
+  log_analyzer: "01",
+  incident_extractor: "02",
+  kb_search: "03",
+  root_cause: "04",
+  gather_evidence: "RX",
+  human_approval: "HITL",
+  remediation: "05",
+  summary: "06",
+};
+
+interface DetailPanelProps {
+  step: StepPayload | null;
   meta: MetaResponse | null;
+  phase: Phase;
+  approvalRequest: RemediationApprovalRequest | null;
+  onApprove: () => void;
+  onReject: () => void;
 }
 
-export default function StepCard({ step, meta }: StepCardProps) {
+export default function DetailPanel({ step, meta, phase, approvalRequest, onApprove, onReject }: DetailPanelProps) {
+  if (approvalRequest && phase === "awaiting_approval") {
+    return (
+      <div className="detail-panel detail-panel--alert">
+        <DetailHeader code="HITL" title="Human Approval Required" status="Action required" alert />
+        <div className="detail-panel__body">
+          <ApprovalCard
+            request={approvalRequest}
+            confidenceThreshold={meta?.confidence_threshold ?? 0.75}
+            disabled={false}
+            onApprove={onApprove}
+            onReject={onReject}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  if (!step) {
+    return (
+      <div className="detail-panel">
+        <DetailHeader code="--" title="Standby" status="Idle" />
+        <div className="detail-panel__body">
+          <p className="empty">
+            Awaiting orchestration start. Run the diagnostic to begin streaming live agent output here.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   const { executor_id, context } = step;
 
   return (
-    <article className={`step-card step-card--${executor_id}`}>
-      <h3>{STEP_TITLES[executor_id] ?? executor_id}</h3>
-      {renderBody(executor_id, context, meta)}
-    </article>
+    <div className="detail-panel">
+      <DetailHeader code={STEP_CODES[executor_id]} title={STEP_TITLES[executor_id] ?? executor_id} status="Online" />
+      <div className="detail-panel__body">{renderBody(executor_id, context, meta)}</div>
+    </div>
   );
 }
 
-function renderBody(executorId: string, context: SharedContext, meta: MetaResponse | null) {
+function DetailHeader({
+  code,
+  title,
+  status,
+  alert,
+}: {
+  code: string;
+  title: string;
+  status: string;
+  alert?: boolean;
+}) {
+  return (
+    <div className="detail-panel__header">
+      <span className="detail-panel__code">{code}</span>
+      <div className="detail-panel__heading">
+        <span className="detail-panel__title">{title}</span>
+        <span className="detail-panel__status">{status}</span>
+      </div>
+      {alert && <span className="badge badge--low">HITL</span>}
+    </div>
+  );
+}
+
+function renderBody(executorId: ExecutorId, context: SharedContext, meta: MetaResponse | null) {
   switch (executorId) {
     case "log_analyzer":
       return context.log_analysis ? <LogAnalysisView data={context.log_analysis} /> : null;
@@ -68,7 +139,7 @@ function LogAnalysisView({ data }: { data: LogAnalysis }) {
   return (
     <div className="step-body log-analysis-grid">
       <div>
-        <h4>Timeline reconstituee</h4>
+        <h4>Reconstructed timeline</h4>
         <ul className="timeline">
           {data.timeline.map((item, i) => (
             <li key={i}>
@@ -78,7 +149,7 @@ function LogAnalysisView({ data }: { data: LogAnalysis }) {
         </ul>
       </div>
       <div>
-        <h4>Anomalies detectees</h4>
+        <h4>Detected anomalies</h4>
         <ul>
           {data.anomalies.map((item, i) => (
             <li key={i}>{item}</li>
@@ -86,7 +157,7 @@ function LogAnalysisView({ data }: { data: LogAnalysis }) {
         </ul>
       </div>
       <div>
-        <h4>Evenements correles</h4>
+        <h4>Correlated events</h4>
         <ul>
           {data.correlated_events.map((item, i) => (
             <li key={i}>{item}</li>
@@ -101,18 +172,18 @@ function IncidentView({ data }: { data: Incident }) {
   return (
     <div className="step-body">
       <dl className="kv">
-        <dt>Titre</dt>
+        <dt>Title</dt>
         <dd>{data.titre}</dd>
-        <dt>Severite</dt>
+        <dt>Severity</dt>
         <dd>
           <span className={`severity severity--${data.severite}`}>{data.severite}</span>
         </dd>
         <dt>Services</dt>
         <dd>{data.services.join(", ")}</dd>
-        <dt>Fenetre</dt>
+        <dt>Window</dt>
         <dd>{data.fenetre}</dd>
       </dl>
-      <h4>Symptomes</h4>
+      <h4>Symptoms</h4>
       <ul>
         {data.symptomes.map((item, i) => (
           <li key={i}>{item}</li>
@@ -124,7 +195,7 @@ function IncidentView({ data }: { data: Incident }) {
 
 function KBMatchesView({ data }: { data: KBMatches }) {
   if (data.matches.length === 0) {
-    return <p className="empty">Aucun precedent trouve dans la base de connaissances.</p>;
+    return <p className="empty">No matching precedent found in the knowledge base.</p>;
   }
   return (
     <ul className="kb-matches">
@@ -132,7 +203,7 @@ function KBMatchesView({ data }: { data: KBMatches }) {
         <li key={match.id}>
           <div className="kb-matches__header">
             <span className="kb-matches__id">{match.id}</span>
-            <span className="kb-matches__similarity">similarite {match.similarite.toFixed(2)}</span>
+            <span className="kb-matches__similarity">similarity {match.similarite.toFixed(2)}</span>
           </div>
           <p>{match.resolution}</p>
         </li>
@@ -157,21 +228,21 @@ function RootCauseView({
   return (
     <div className="step-body">
       <p>
-        <strong>Cause retenue :</strong> {data.cause}
+        <strong>Root cause:</strong> {data.cause}
       </p>
       <p>
-        <strong>Raisonnement :</strong> {data.raisonnement}
+        <strong>Reasoning:</strong> {data.raisonnement}
       </p>
       <ConfidenceBar value={data.confiance} threshold={threshold} />
       {willLoop ? (
         <div className="root-cause__verdict root-cause__verdict--low">
           <p>
-            Confiance sous le seuil : l'orchestrateur reboucle pour chercher des preuves (passage {loopCount + 1}/
+            Confidence below threshold: the orchestrator loops back to gather more evidence (pass {loopCount + 1}/
             {maxLoops}).
           </p>
           {data.preuves_manquantes.length > 0 && (
             <>
-              <h4>Preuves manquantes a collecter</h4>
+              <h4>Missing evidence to collect</h4>
               <ul>
                 {data.preuves_manquantes.map((item, i) => (
                   <li key={i}>{item}</li>
@@ -183,8 +254,8 @@ function RootCauseView({
       ) : (
         <p className="root-cause__verdict root-cause__verdict--ok">
           {data.confiance >= threshold
-            ? "Confiance suffisante : passage a la validation humaine."
-            : "Budget de reflexion epuise : passage a la validation humaine malgre une confiance sous le seuil."}
+            ? "Confidence sufficient: proceeding to human approval."
+            : "Reflection budget exhausted: proceeding to human approval despite confidence below threshold."}
         </p>
       )}
     </div>
@@ -196,12 +267,12 @@ function GatherEvidenceView({ context, meta }: { context: SharedContext; meta: M
   return (
     <div className="step-body">
       <p>
-        Reboucle {context.loop_count}/{maxLoops} : Log Analyzer et KB Search re-sollicites avec les preuves
-        manquantes ciblees.
+        Loop {context.loop_count}/{maxLoops}: Log Analyzer and KB Search are re-queried with the targeted missing
+        evidence.
       </p>
       {context.log_analysis && context.log_analysis.correlated_events.length > 0 && (
         <>
-          <h4>Nouveaux evenements correles</h4>
+          <h4>New correlated events</h4>
           <ul>
             {context.log_analysis.correlated_events.map((item, i) => (
               <li key={i}>{item}</li>
@@ -210,18 +281,18 @@ function GatherEvidenceView({ context, meta }: { context: SharedContext; meta: M
         </>
       )}
       {context.kb_matches && context.kb_matches.matches.length > 0 && (
-        <p>Base de connaissances reconfrontee : {context.kb_matches.matches.map((match) => match.id).join(", ")}</p>
+        <p>Knowledge base re-checked: {context.kb_matches.matches.map((match) => match.id).join(", ")}</p>
       )}
     </div>
   );
 }
 
-/** Partage avec `History.tsx` (detail d'une execution passee). */
+/** Shared with `History.tsx` (detail view of a past run). */
 export function RemediationPlanView({ data }: { data: RemediationPlan }) {
   return (
     <div className="remediation-grid">
       <div>
-        <h4>Immediat</h4>
+        <h4>Immediate</h4>
         <ul>
           {data.immediat.map((item, i) => (
             <li key={i}>{item}</li>
@@ -229,7 +300,7 @@ export function RemediationPlanView({ data }: { data: RemediationPlan }) {
         </ul>
       </div>
       <div>
-        <h4>Court terme</h4>
+        <h4>Short term</h4>
         <ul>
           {data.court_terme.map((item, i) => (
             <li key={i}>{item}</li>
@@ -237,7 +308,7 @@ export function RemediationPlanView({ data }: { data: RemediationPlan }) {
         </ul>
       </div>
       <div>
-        <h4>Long terme</h4>
+        <h4>Long term</h4>
         <ul>
           {data.long_terme.map((item, i) => (
             <li key={i}>{item}</li>
@@ -259,7 +330,7 @@ function SummaryView({ data }: { data: IncidentReport }) {
 function RejectionView() {
   return (
     <p className="empty">
-      L'humain a refuse la remediation : le workflow s'arrete ici. Aucun plan de remediation n'est genere ni affiche.
+      The human rejected the remediation: the workflow stops here. No remediation plan is generated or displayed.
     </p>
   );
 }

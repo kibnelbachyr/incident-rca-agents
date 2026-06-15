@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { fetchHistory, fetchHistoryRecord } from "../api";
 import type { IncidentRecord, IncidentRecordSummary, MetaResponse } from "../types";
 import ConfidenceBar from "./ConfidenceBar";
-import { RemediationPlanView } from "./StepCard";
+import { RemediationPlanView } from "./DetailPanel";
 
 interface HistoryProps {
   meta: MetaResponse | null;
@@ -39,27 +39,25 @@ export default function History({ meta }: HistoryProps) {
   return (
     <div className="history">
       {selectedError && <p className="error-banner">{selectedError}</p>}
-      {loading && <p className="empty">Chargement de l'historique...</p>}
+      {loading && <p className="empty">Loading history…</p>}
       {error && <p className="error-banner">{error}</p>}
-      {!loading && !error && summaries.length === 0 && (
-        <p className="empty">Aucune execution enregistree pour le moment.</p>
-      )}
+      {!loading && !error && summaries.length === 0 && <p className="empty">No runs recorded yet.</p>}
       {summaries.length > 0 && (
         <table className="history-table">
           <thead>
             <tr>
               <th>Date</th>
-              <th>Titre</th>
-              <th>Severite</th>
+              <th>Title</th>
+              <th>Severity</th>
               <th>Cause</th>
-              <th>Confiance</th>
+              <th>Confidence</th>
               <th>Decision</th>
             </tr>
           </thead>
           <tbody>
             {summaries.map((item) => (
               <tr key={item.id} className="history-table__row" onClick={() => openRecord(item.id)}>
-                <td>{new Date(item.finished_at).toLocaleString("fr-FR")}</td>
+                <td>{new Date(item.finished_at).toLocaleString("en-GB")}</td>
                 <td>{item.titre ?? "—"}</td>
                 <td>{item.severite ?? "—"}</td>
                 <td>{item.cause ?? "—"}</td>
@@ -77,11 +75,11 @@ export default function History({ meta }: HistoryProps) {
 }
 
 function DecisionBadge({ approved }: { approved: boolean | null }) {
-  if (approved === null) return <span className="badge">en attente</span>;
+  if (approved === null) return <span className="badge">pending</span>;
   return approved ? (
-    <span className="badge badge--ok">approuvée</span>
+    <span className="badge badge--ok">approved</span>
   ) : (
-    <span className="badge badge--low">refusée</span>
+    <span className="badge badge--low">rejected</span>
   );
 }
 
@@ -98,59 +96,57 @@ function HistoryDetail({ record, meta, onBack }: HistoryDetailProps) {
   return (
     <div className="history-detail">
       <button className="button" onClick={onBack}>
-        ← Retour à l'historique
+        ← Back to history
       </button>
       <p className="history-detail__meta">
-        Execution {record.id} — {new Date(record.started_at).toLocaleString("fr-FR")} →{" "}
-        {new Date(record.finished_at).toLocaleString("fr-FR")} — <DecisionBadge approved={record.approved} />
+        Run {record.id} — {new Date(record.started_at).toLocaleString("en-GB")} →{" "}
+        {new Date(record.finished_at).toLocaleString("en-GB")} — <DecisionBadge approved={record.approved} />
       </p>
 
       {context.incident && (
-        <article className="step-card">
+        <article className="history-card">
           <h3>Incident</h3>
           <dl className="kv">
-            <dt>Titre</dt>
+            <dt>Title</dt>
             <dd>{context.incident.titre}</dd>
-            <dt>Severite</dt>
+            <dt>Severity</dt>
             <dd>{context.incident.severite}</dd>
             <dt>Services</dt>
             <dd>{context.incident.services.join(", ")}</dd>
-            <dt>Fenetre</dt>
+            <dt>Window</dt>
             <dd>{context.incident.fenetre}</dd>
           </dl>
         </article>
       )}
 
       {context.root_cause && (
-        <article className="step-card">
-          <h3>Cause racine retenue</h3>
+        <article className="history-card">
+          <h3>Root Cause</h3>
           <p>
-            <strong>Cause :</strong> {context.root_cause.cause}
+            <strong>Cause:</strong> {context.root_cause.cause}
           </p>
           <p>
-            <strong>Raisonnement :</strong> {context.root_cause.raisonnement}
+            <strong>Reasoning:</strong> {context.root_cause.raisonnement}
           </p>
           <ConfidenceBar value={context.root_cause.confiance} threshold={threshold} />
         </article>
       )}
 
       {context.remediation_plan && (
-        <article className="step-card">
-          <h3>Plan de remediation (proposé)</h3>
+        <article className="history-card">
+          <h3>Remediation Plan (proposed)</h3>
           <RemediationPlanView data={context.remediation_plan} />
         </article>
       )}
 
       {context.report && (
-        <article className="step-card">
-          <h3>Rapport final</h3>
+        <article className="history-card">
+          <h3>Final Report</h3>
           <pre className="report-text">{context.report.texte}</pre>
         </article>
       )}
 
-      {context.approved === false && (
-        <p className="empty">L'humain a refusé la remédiation lors de cette exécution.</p>
-      )}
+      {context.approved === false && <p className="empty">The human rejected the remediation for this run.</p>}
     </div>
   );
 }

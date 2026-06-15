@@ -3,7 +3,7 @@ interface ConfidenceBarProps {
   threshold: number;
 }
 
-/** Jauge confiance vs `CONFIDENCE_THRESHOLD` (cf. RootCauseExecutor, graph.py). */
+/** Confidence gauge vs `CONFIDENCE_THRESHOLD` (cf. RootCauseExecutor, graph.py). */
 export default function ConfidenceBar({ value, threshold }: ConfidenceBarProps) {
   const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
   const thresholdPct = Math.round(Math.min(1, Math.max(0, threshold)) * 100);
@@ -19,7 +19,7 @@ export default function ConfidenceBar({ value, threshold }: ConfidenceBarProps) 
         <div className="confidence-bar__threshold" style={{ left: `${thresholdPct}%` }} />
       </div>
       <span className="confidence-bar__label">
-        confiance {value.toFixed(2)} {sufficient ? "≥" : "<"} seuil {threshold.toFixed(2)}
+        confidence {value.toFixed(2)} {sufficient ? "≥" : "<"} threshold {threshold.toFixed(2)}
       </span>
     </div>
   );

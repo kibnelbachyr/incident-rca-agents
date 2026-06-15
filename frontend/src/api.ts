@@ -44,7 +44,7 @@ async function streamPost(url: string, body: unknown, handlers: StreamHandlers):
   });
 
   if (!response.ok || !response.body) {
-    throw new Error(`Requete ${url} echouee (HTTP ${response.status})`);
+    throw new Error(`Request ${url} failed (HTTP ${response.status})`);
   }
 
   const reader = response.body.getReader();
@@ -111,18 +111,18 @@ export function submitApproval(runId: string, approved: boolean, handlers: Strea
 
 export async function fetchMeta(): Promise<MetaResponse> {
   const response = await fetch("/api/meta");
-  if (!response.ok) throw new Error("Configuration indisponible");
+  if (!response.ok) throw new Error("Configuration unavailable");
   return (await response.json()) as MetaResponse;
 }
 
 export async function fetchHistory(limit = 20): Promise<IncidentRecordSummary[]> {
   const response = await fetch(`/api/history?limit=${limit}`);
-  if (!response.ok) throw new Error("Historique indisponible");
+  if (!response.ok) throw new Error("History unavailable");
   return (await response.json()) as IncidentRecordSummary[];
 }
 
 export async function fetchHistoryRecord(runId: string): Promise<IncidentRecord> {
   const response = await fetch(`/api/history/${runId}`);
-  if (!response.ok) throw new Error("Execution introuvable");
+  if (!response.ok) throw new Error("Run not found");
   return (await response.json()) as IncidentRecord;
 }
