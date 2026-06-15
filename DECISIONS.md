@@ -336,3 +336,29 @@ de contexte + justification par decision, ordre chronologique.
     "Projects") dans un etat `Failed` et le supprimer avant de relancer (un
     retry `azd up`/`azd provision` simple suffit normalement, PUT ARM etant
     idempotent).
+
+27. **`azd up` echoue encore sur `foundryProject` apres #26 (meme
+    `BadRequest: ... must enable a managed identity on your resource`, sur
+    un environnement neuf) -> `identity: SystemAssigned` ajoute aussi sur le
+    PROJET, pas seulement sur le compte.** Sur un environnement neuf,
+    `aoai-${resourceToken}` est cree avec succes en ~17s (identite incluse,
+    #26), mais `aoai-${resourceToken}/proj-${resourceToken}` echoue 805ms
+    plus tard avec le meme `BadRequest: Unsupported configuration. To create
+    projects, you must enable a managed identity on your resource.` - ce qui
+    invalide l'hypothese de #26 selon laquelle "`accounts/projects` ne
+    requiert pas d'identite propre, seul le compte parent en a besoin".
+    Confirmation via le module de reference Microsoft
+    [`avm/ptn/ai-ml/ai-foundry`](https://github.com/Azure/bicep-registry-modules/blob/main/avm/ptn/ai-ml/ai-foundry/modules/project/main.bicep) :
+    la ressource `Microsoft.CognitiveServices/accounts/projects` y declare
+    elle-meme `identity: { type: 'SystemAssigned' }`, en plus de
+    `managedIdentities: { systemAssigned: true }` sur le compte parent (module
+    `avm/res/cognitive-services/account`). Fix : `identity: { type:
+    'SystemAssigned' }` ajoute a `foundryProject` (en plus de celle sur
+    `openAi`, #26) - type `Identity` valide pour
+    `accounts/projects@2025-06-01` (`'None' | 'SystemAssigned' |
+    'SystemAssigned, UserAssigned' | 'UserAssigned'`, schema deja verifie en
+    #25). Ajout non destructif (nouvelle identite systeme sur une ressource
+    enfant, aucun impact sur les sorties
+    `AZURE_FOUNDRY_PROJECT_NAME`/`AZURE_FOUNDRY_PROJECT_ID` ni sur les role
+    assignments existants, qui referencent uniquement l'identite du Container
+    App).

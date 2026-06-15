@@ -119,7 +119,9 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 // identity SystemAssigned : requis par l'ARM provider pour
 // `allowProjectManagement: true` (sans elle, `azd up` echoue sur
 // `foundryProject` avec BadRequest "To create projects, you must enable a
-// managed identity on your resource", DECISIONS.md #26).
+// managed identity on your resource", DECISIONS.md #26). Le sous-projet
+// `foundryProject` a egalement besoin de sa propre identite SystemAssigned
+// (DECISIONS.md #27).
 resource openAi 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: 'aoai-${resourceToken}'
   location: location
@@ -201,10 +203,19 @@ resource openAiRoleAssignmentDev 'Microsoft.Authorization/roleAssignments@2022-0
 // Projet Microsoft Foundry (ai.azure.com) : rend l'orchestration
 // `WorkflowBuilder` visible dans Observability > Traces une fois connecte a
 // `appInsights` (etape manuelle, docs/deployment.md #8.12, DECISIONS.md #25).
+// identity SystemAssigned sur le PROJET lui-meme (pas seulement sur le
+// compte parent `openAi`) : pattern confirme par le module de reference
+// Microsoft `avm/ptn/ai-ml/ai-foundry` (modules/project/main.bicep). Sans
+// elle, `azd up` echoue sur `foundryProject` avec le meme BadRequest "To
+// create projects, you must enable a managed identity on your resource"
+// meme si le compte parent a deja son identite (DECISIONS.md #27).
 resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
   parent: openAi
   name: 'proj-${resourceToken}'
   location: location
+  identity: {
+    type: 'SystemAssigned'
+  }
   properties: {
     displayName: 'Incident RCA Agents'
     description: 'Diagnostic multi-agents d\'un incident de paiement (CLAUDE.md) : orchestration WorkflowBuilder (LogAnalyzer -> IncidentExtractor -> KBSearch -> RootCause <-> GatherEvidence -> HumanApproval -> Remediation -> Summary).'
