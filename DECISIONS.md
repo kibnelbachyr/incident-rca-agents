@@ -362,3 +362,30 @@ de contexte + justification par decision, ordre chronologique.
     `AZURE_FOUNDRY_PROJECT_NAME`/`AZURE_FOUNDRY_PROJECT_ID` ni sur les role
     assignments existants, qui referencent uniquement l'identite du Container
     App).
+
+28. **`azd provision` echoue ensuite sur le compte `openAi`
+    (`aoai-${resourceToken}`, tres rapidement) avec `BadRequest:
+    PublicNetworkAccess is required for this resouce` [sic] ->
+    `publicNetworkAccess: 'Enabled'` ajoute explicitement aux `properties`
+    de `openAi`.** Apres #27, un retry sur l'environnement de la Defaillance
+    #3 a echoue en 1.665s sur le compte lui-meme (qui avait pourtant reussi
+    en 17s lors de la tentative precedente) avec ce `BadRequest` (toujours
+    sous le meme wrapper generique "already exists or in a conflicting
+    state"). Avec `allowProjectManagement: true` (#25) et un sous-projet
+    `accounts/projects` ayant sa propre identite (#27), Azure exige
+    desormais que `properties.publicNetworkAccess` du compte parent soit
+    explicitement renseigne - il ne peut plus rester implicite/omis.
+    Confirmation : le module de reference
+    [`avm/res/cognitive-services/account`](https://github.com/Azure/bicep-registry-modules/blob/main/avm/res/cognitive-services/account/main.bicep)
+    (utilise par `avm/ptn/ai-ml/ai-foundry`, #27) ne laisse JAMAIS cette
+    propriete implicite :
+    `publicNetworkAccess: publicNetworkAccess != null ? publicNetworkAccess
+    : (!empty(networkAcls) ? 'Enabled' : 'Disabled')`. Fix :
+    `publicNetworkAccess: 'Enabled'` ajoute aux `properties` de `openAi`
+    (`Microsoft.CognitiveServices/accounts`, enum `'Disabled' | 'Enabled'`
+    valide pour `@2025-06-01`). `'Enabled'` car ce bicep ne provisionne
+    aucun VNet/private endpoint : le Container App et l'identite dev
+    (`principalId`) accedent a `aoai-${resourceToken}` via son endpoint
+    public, comme c'etait implicitement le cas avant ce changement (le
+    compte avait reussi sans cette propriete lors de la Defaillance #3).
+    Ajout non destructif, ne restreint aucun acces existant.

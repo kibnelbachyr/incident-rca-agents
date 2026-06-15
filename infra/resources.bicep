@@ -137,6 +137,12 @@ resource openAi 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
     customSubDomainName: 'aoai-${resourceToken}'
     disableLocalAuth: true
     allowProjectManagement: true
+    // Requis explicitement avec allowProjectManagement: true + identite sur
+    // foundryProject (#27), sinon `BadRequest: PublicNetworkAccess is
+    // required for this resouce` (DECISIONS.md #28). 'Enabled' : aucun
+    // VNet/private endpoint dans ce bicep, le Container App et l'acces dev
+    // (principalId) joignent aoai-${resourceToken} via son endpoint public.
+    publicNetworkAccess: 'Enabled'
   }
 }
 
