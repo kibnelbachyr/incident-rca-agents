@@ -164,13 +164,92 @@ vraies ressources Azure, passez les variables `AZURE_*` via `docker run -e
 `AZURE_OPENAI_ENDPOINT`), `StubChatClient` est utilisé et **aucune variable
 n'est requise**.
 
-## 8. Déploiement sur Azure (`azd`)
+## 8. Déploiement sur Azure (`azd`) — guide pas à pas
 
 `infra/` (Bicep) + `azure.yaml` provisionnent l'architecture cible décrite
-par `CLAUDE.md` et déploient l'image Docker ci-dessus sur **Azure Container
-Apps**.
+par `CLAUDE.md` et déploient l'image Docker (§7) sur **Azure Container
+Apps**, en une seule commande (`azd up`). Cette section est un guide pas à
+pas, du compte Azure vierge jusqu'à l'URL publique.
 
-### 8.1 Ressources provisionnées (`infra/resources.bicep`)
+### 8.1 Avant de commencer (prérequis)
+
+| Prérequis | Détail |
+|---|---|
+| Abonnement Azure | Droits suffisants pour créer un resource group et des role assignments (rôle *Owner*, ou *Contributor* + *User Access Administrator*, sur l'abonnement ou le resource group cible) |
+| **Accès et quota Azure OpenAI** | L'abonnement doit avoir l'accès Azure OpenAI activé, avec du quota **GlobalStandard** disponible pour `gpt-4o` *et* `gpt-4o-mini` (capacité 10 chacun — `infra/resources.bicep`). Sans ce quota, `azd up` échoue à l'étape de création des déploiements de modèles. Demande/vérification : Azure OpenAI Studio → *Quotas*, ou https://aka.ms/oai/access |
+| Région cible | Une région où ces déploiements **GlobalStandard** GPT-4o / GPT-4o-mini sont disponibles (ex. `swedencentral`, `eastus2`, `francecentral`) — vérifier la disponibilité courante dans la doc « Azure OpenAI Models » |
+| Outils locaux | [Azure Developer CLI (`azd`)](https://aka.ms/azd), Azure CLI (`az`), Docker (utilisé par `azd` pour builder l'image — sinon ACR Tasks en repli), Git |
+
+> Ces prérequis sont **au niveau de l'abonnement Azure**, indépendants du code
+> de ce repo : aucune quantité de Bicep ne peut provisionner un quota qui n'a
+> pas été accordé à l'abonnement.
+
+### 8.2 Étape 1 — Authentification
+
+```bash
+azd auth login
+```
+
+Ouvre un navigateur pour l'authentification Microsoft Entra ID. Si le compte a
+accès à plusieurs abonnements, vérifier/sélectionner le bon (`az account
+show`, `az account set --subscription <id>`) avant l'étape suivante.
+
+### 8.3 Étape 2 — Provisionner et déployer (`azd up`)
+
+```bash
+azd up
+```
+
+`azd up` = `azd provision` (infra) + `azd deploy` (application), en une seule
+commande. Au premier lancement, `azd` pose deux questions :
+
+| Invite | Exemple | Remarque |
+|---|---|---|
+| `Enter a new environment name` | `incident-rca-demo` | Préfixe des noms de ressources (`rg-incident-rca-demo`, etc.) — devient `AZURE_ENV_NAME` |
+| `Select an Azure location` | `swedencentral` | **Doit supporter GPT-4o / GPT-4o-mini GlobalStandard** (§8.1) — devient `AZURE_LOCATION` |
+
+(Si l'abonnement compte plusieurs souscriptions, `azd` demande également
+laquelle utiliser.)
+
+Déroulement (~10–15 minutes) :
+
+1. **Provisioning** (`infra/main.bicep` → `infra/resources.bicep`, portée
+   abonnement) : crée `rg-<environnement>` puis les 20 ressources — Log
+   Analytics, Application Insights, identité managée, Container Registry,
+   Azure OpenAI + déploiements `gpt-4o`/`gpt-4o-mini`, Azure AI Search, Cosmos
+   DB (base `incidents` + conteneur `records`), Container Apps Environment et
+   Container App (image placeholder) — ainsi que tous les role assignments
+   RBAC (§8.6).
+2. **Build** : `docker build` sur le `Dockerfile` multi-étapes (frontend React
+   puis API FastAPI), ou build distant via ACR Tasks si Docker n'est pas
+   disponible localement.
+3. **Push** : l'image est poussée vers le Container Registry provisionné à
+   l'étape précédente.
+4. **Deploy** : nouvelle révision du Container App avec l'image réelle et les
+   variables d'environnement injectées automatiquement (§8.6).
+
+À la fin, `azd up` affiche l'URL publique (`SERVICE_API_URI`), par exemple :
+
+```
+https://api-xxxxxxxx.<region>.azurecontainerapps.io
+```
+
+### 8.4 Étape 3 — Vérifier le déploiement
+
+1. Ouvrir `SERVICE_API_URI` dans un navigateur → l'UI React (`frontend/dist/`,
+   servie par FastAPI) doit s'afficher.
+2. `GET /api/health` → `{"status": "ok"}`.
+3. `GET /api/meta` → `use_real_azure_openai: true` (les agents appellent
+   désormais Azure OpenAI réel via `AzureOpenAIStructuredChatClient`, et non
+   plus `StubChatClient`).
+4. Dans l'UI, « Lancer le diagnostic » → le graphe d'orchestration s'anime en
+   direct (SSE). Avec des modèles réels, les sorties (notamment les scores de
+   `confiance`) peuvent différer du scénario figé — voir
+   [`demo-guide.md`](demo-guide.md) « Variante : Azure OpenAI réel ».
+5. À la porte de validation humaine, approuver/refuser depuis l'UI
+   (`ApprovalCard`) comme décrit dans [`demo-guide.md`](demo-guide.md) §4.
+
+### 8.5 Ressources provisionnées (`infra/resources.bicep`)
 
 | Ressource | Type Azure | Rôle |
 |-----------|------------|------|
@@ -184,7 +263,7 @@ Apps**.
 | Container Apps Environment | `Microsoft.App/managedEnvironments` | environnement d'exécution |
 | Container App | `Microsoft.App/containerApps` | héberge l'API+UI, ingress externe port 8000, `azd-service-name: api` |
 
-### 8.2 Sécurité : aucun secret en clair
+### 8.6 Sécurité : aucun secret en clair
 
 `disableLocalAuth: true` sur Azure OpenAI **et** Cosmos DB désactive les clés
 API/maître. Toute l'authentification data-plane passe par des **role
@@ -203,26 +282,14 @@ Le Container App reçoit `AZURE_AUTH_MODE=managed_identity` et
 sélectionne cette identité). Un paramètre optionnel `principalId` (rempli
 par `azd` via `AZURE_PRINCIPAL_ID`) accorde les **mêmes rôles data-plane** au
 compte du développeur, pour pouvoir pointer un `.env` local
-(`AZURE_AUTH_MODE=cli`) vers les ressources réellement déployées.
+(`AZURE_AUTH_MODE=cli`) vers les ressources réellement déployées (§8.7).
 
 > `Microsoft.App/containerApps` est configuré avec `scale: {minReplicas: 1,
 > maxReplicas: 1}` : `app.state.runs` (`src/api/runs.py`) est un registre en
 > mémoire par processus — plusieurs réplicas casseraient la reprise HITL
 > entre les deux appels SSE.
 
-### 8.3 Déployer
-
-```bash
-azd auth login
-azd up   # provisionne infra/ puis build + push + déploie l'image Docker
-```
-
-`azd up` demande un nom d'environnement et une région — choisir une région où
-les déploiements GPT-4o / GPT-4o-mini « GlobalStandard » sont disponibles
-(ex. `swedencentral`, `eastus2`). L'URL du Container App (`SERVICE_API_URI`)
-est affichée à la fin.
-
-### 8.4 Développer en local contre les ressources déployées
+### 8.7 Développer en local contre les ressources déployées
 
 ```bash
 azd env get-values >> .env   # AZURE_OPENAI_ENDPOINT, COSMOS_ENDPOINT, ...
@@ -230,14 +297,52 @@ az login                      # AZURE_AUTH_MODE=cli (défaut) -> AzureCliCredent
 uvicorn src.api.app:app --reload
 ```
 
-`KB_MODE` reste `local` par défaut même après `azd up` (l'index Azure AI
-Search est créé vide, §5 ci-dessus).
+`KB_MODE` reste `local` par défaut même après `azd up` (§8.9).
 
-### 8.5 Nettoyage
+### 8.8 Mettre à jour le déploiement après un changement de code
 
 ```bash
-azd down   # supprime toutes les ressources de l'environnement
+azd deploy   # rebuild + push + nouvelle révision du Container App (infra inchangée)
+# si infra/*.bicep a changé :
+azd up
 ```
+
+### 8.9 (Optionnel) Basculer la base de connaissances vers Azure AI Search
+
+L'index Azure AI Search est provisionné **vide** (§5) : `KB_MODE` reste
+`local` après déploiement et l'app utilise `data/knowledge_base.json` embarqué
+dans l'image. Pour activer la recherche RAG réelle :
+
+1. Indexer `data/knowledge_base.json` dans l'index `incident-kb`
+   (`AZURE_AI_SEARCH_ENDPOINT`, schéma `SPEC.md` §7) — **étape manuelle, aucun
+   pipeline d'indexation dans le repo** (DECISIONS.md #22).
+2. Basculer le Container App sur `KB_MODE=azure_search` :
+   ```bash
+   azd env set KB_MODE azure_search
+   azd deploy
+   ```
+3. `get_knowledge_base()` (`src/tools/knowledge_base.py`) bascule
+   automatiquement sur `AzureAISearchKnowledgeBase`.
+
+Sans l'étape 1, `KBSearch` ne retournerait aucun précédent — c'est pourquoi
+`KB_MODE` reste `local` par défaut après `azd up`.
+
+### 8.10 Nettoyage
+
+```bash
+azd down            # supprime toutes les ressources de l'environnement (resource group inclus)
+azd down --purge    # + purge définitive des ressources à suppression différée (Azure OpenAI, Cosmos DB)
+```
+
+### 8.11 Dépannage
+
+| Symptôme | Cause probable | Solution |
+|---|---|---|
+| `azd up` échoue sur `openAiChatDeployment` / `openAiChatDeploymentLight` (quota dépassé) | Pas de quota GlobalStandard pour GPT-4o/GPT-4o-mini dans la région choisie | Demander le quota dans Azure OpenAI Studio, ou choisir une autre région (§8.1) |
+| `azd up` échoue sur `Microsoft.CognitiveServices/accounts` (accès refusé) | Accès Azure OpenAI non activé sur l'abonnement | Demander l'accès via https://aka.ms/oai/access |
+| `azd up` échoue sur les role assignments (`AuthorizationFailed`) | Le compte n'a pas le rôle *User Access Administrator* (ou *Owner*) sur l'abonnement/resource group | Demander ce rôle, ou faire provisionner par un admin disposant des droits |
+| L'UI se charge mais `POST /api/runs` échoue ou les agents lèvent une erreur | Déploiements Azure OpenAI pas encore complètement propagés | Attendre quelques minutes puis réessayer, vérifier `GET /api/meta` |
+| `KBSearch` ne retourne aucun précédent malgré `KB_MODE=azure_search` | Index Azure AI Search vide (provisionné sans pipeline d'indexation) | Indexer `data/knowledge_base.json` (§8.9), ou revenir à `KB_MODE=local` |
 
 ## 9. Tests
 
