@@ -255,3 +255,18 @@ de contexte + justification par decision, ordre chronologique.
     `scenario-demo-incident-paiement.md` le script de presentation (message,
     minutage) : `docs/` y renvoie plutot que de les dupliquer. Linke depuis
     `README.md` ("Aller plus loin") via `docs/README.md` (index).
+
+24. **`gpt-4o` `2024-08-06` retire de `infra/resources.bicep` -> `2024-11-20`.**
+    Un `azd up` reel a echoue au provisioning de `openAiChatDeployment` avec
+    `ServiceModelDeprecating: The model 'Format:OpenAI,Name:gpt-4o,Version:2024-08-06'
+    is in deprecating state and cannot be used for new deployments`. Verifie
+    via le [Model Retirement Schedule](https://learn.microsoft.com/azure/ai-foundry/openai/concepts/model-retirement-schedule)
+    Microsoft Learn : `gpt-4o` `2024-05-13` et `2024-08-06` sont "Deprecated"
+    (retrait 2026-10-01, plus disponibles pour de nouveaux deploiements),
+    `2024-11-20` est "GA" (retrait 2026-10-01 egalement, remplacement
+    `gpt-5.1`). `gpt-4o-mini` `2024-07-18` reste "GA", non touche par cette
+    erreur, laisse inchange. `docs/deployment.md` §8.11 documente ce mode de
+    panne (et le fait que les versions de modeles Azure OpenAI se deprecient
+    avec le temps independamment du code) ainsi que l'echec `package-api:
+    building image: signal: killed` observe en parallele (OOM probable du
+    build Docker lance en meme temps que le provisioning par `azd up`).

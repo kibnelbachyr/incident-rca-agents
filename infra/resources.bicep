@@ -119,6 +119,8 @@ resource openAi 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
   }
 }
 
+// version 2024-11-20 : 2024-08-06 et 2024-05-13 sont depreciees pour les
+// nouveaux deploiements (Azure OpenAI Model Retirement Schedule, oct. 2025).
 resource openAiChatDeployment 'Microsoft.CognitiveServices/accounts/deployments@2024-10-01' = {
   parent: openAi
   name: chatDeploymentName
@@ -130,7 +132,7 @@ resource openAiChatDeployment 'Microsoft.CognitiveServices/accounts/deployments@
     model: {
       format: 'OpenAI'
       name: 'gpt-4o'
-      version: '2024-08-06'
+      version: '2024-11-20'
     }
   }
 }
