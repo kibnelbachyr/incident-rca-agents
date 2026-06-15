@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 
 import { fetchMeta, startRun, submitApproval } from "./api";
 import ApprovalCard from "./components/ApprovalCard";
+import Footer from "./components/Footer";
 import Header, { type View } from "./components/Header";
 import History from "./components/History";
 import StepCard from "./components/StepCard";
@@ -123,6 +124,7 @@ export default function App() {
           </>
         )}
       </main>
+      <Footer />
     </div>
   );
 }
