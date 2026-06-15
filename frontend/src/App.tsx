@@ -14,7 +14,7 @@ export default function App() {
   const [phase, setPhase] = useState<Phase>("idle");
   const [runId, setRunId] = useState<string | null>(null);
   const [steps, setSteps] = useState<StepPayload[]>([]);
-  const [selectedStepId, setSelectedStepId] = useState<ExecutorId | null>(null);
+  const [manualIndex, setManualIndex] = useState<number | null>(null);
   const [approvalRequest, setApprovalRequest] = useState<RemediationApprovalRequest | null>(null);
   const [finalApproved, setFinalApproved] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -28,7 +28,7 @@ export default function App() {
   async function handleStart() {
     setPhase("running");
     setSteps([]);
-    setSelectedStepId(null);
+    setManualIndex(null);
     setApprovalRequest(null);
     setFinalApproved(null);
     setErrorMessage(null);
@@ -39,7 +39,6 @@ export default function App() {
         onRunStarted: (data) => setRunId(data.run_id),
         onStep: (data) => {
           setSteps((prev) => [...prev, data]);
-          setSelectedStepId(data.executor_id);
         },
         onApprovalRequired: (data) => {
           setApprovalRequest(data.request);
@@ -69,7 +68,6 @@ export default function App() {
       await submitApproval(runId, approved, {
         onStep: (data) => {
           setSteps((prev) => [...prev, data]);
-          setSelectedStepId(data.executor_id);
         },
         onDone: (data) => {
           setFinalApproved(data.approved);
@@ -87,8 +85,31 @@ export default function App() {
   }
 
   const isBusy = phase === "running" || phase === "awaiting_approval";
-  const stepsById = new Map(steps.map((step) => [step.executor_id, step]));
-  const selectedStep = selectedStepId ? stepsById.get(selectedStepId) ?? null : null;
+  const selectedIndex = manualIndex ?? (steps.length > 0 ? steps.length - 1 : null);
+  const selectedStep = selectedIndex !== null ? steps[selectedIndex] ?? null : null;
+  const selectedExecutorId = selectedStep?.executor_id ?? null;
+
+  /** Jump to the most recent occurrence of `id` (reflection loops can repeat an executor). */
+  function handleSelectNode(id: ExecutorId) {
+    for (let i = steps.length - 1; i >= 0; i--) {
+      if (steps[i].executor_id === id) {
+        setManualIndex(i);
+        return;
+      }
+    }
+  }
+
+  function handlePrev() {
+    if (selectedIndex === null || selectedIndex <= 0) return;
+    setManualIndex(selectedIndex - 1);
+  }
+
+  function handleNext() {
+    if (selectedIndex === null || selectedIndex >= steps.length - 1) return;
+    const next = selectedIndex + 1;
+    // Snap back to "follow latest" once we've caught up to the newest step.
+    setManualIndex(next >= steps.length - 1 ? null : next);
+  }
 
   return (
     <div className="app">
@@ -104,12 +125,16 @@ export default function App() {
             steps={steps}
             phase={phase}
             runId={runId}
-            selectedId={selectedStepId}
-            onSelect={setSelectedStepId}
+            selectedId={selectedExecutorId}
+            onSelect={handleSelectNode}
           />
 
           <DetailPanel
             step={selectedStep}
+            stepIndex={selectedIndex}
+            totalSteps={steps.length}
+            onPrev={handlePrev}
+            onNext={handleNext}
             meta={meta}
             phase={phase}
             approvalRequest={approvalRequest}

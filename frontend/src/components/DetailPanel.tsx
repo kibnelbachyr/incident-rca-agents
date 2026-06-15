@@ -39,6 +39,10 @@ const STEP_CODES: Record<ExecutorId, string> = {
 
 interface DetailPanelProps {
   step: StepPayload | null;
+  stepIndex: number | null;
+  totalSteps: number;
+  onPrev: () => void;
+  onNext: () => void;
   meta: MetaResponse | null;
   phase: Phase;
   approvalRequest: RemediationApprovalRequest | null;
@@ -46,7 +50,18 @@ interface DetailPanelProps {
   onReject: () => void;
 }
 
-export default function DetailPanel({ step, meta, phase, approvalRequest, onApprove, onReject }: DetailPanelProps) {
+export default function DetailPanel({
+  step,
+  stepIndex,
+  totalSteps,
+  onPrev,
+  onNext,
+  meta,
+  phase,
+  approvalRequest,
+  onApprove,
+  onReject,
+}: DetailPanelProps) {
   if (approvalRequest && phase === "awaiting_approval") {
     return (
       <div className="detail-panel detail-panel--alert">
@@ -81,10 +96,22 @@ export default function DetailPanel({ step, meta, phase, approvalRequest, onAppr
 
   return (
     <div className="detail-panel">
-      <DetailHeader code={STEP_CODES[executor_id]} title={STEP_TITLES[executor_id] ?? executor_id} status="Online" />
+      <DetailHeader
+        code={STEP_CODES[executor_id]}
+        title={STEP_TITLES[executor_id] ?? executor_id}
+        status="Online"
+        nav={stepIndex !== null ? { index: stepIndex, total: totalSteps, onPrev, onNext } : undefined}
+      />
       <div className="detail-panel__body">{renderBody(executor_id, context, meta)}</div>
     </div>
   );
+}
+
+interface DetailNav {
+  index: number;
+  total: number;
+  onPrev: () => void;
+  onNext: () => void;
 }
 
 function DetailHeader({
@@ -92,11 +119,13 @@ function DetailHeader({
   title,
   status,
   alert,
+  nav,
 }: {
   code: string;
   title: string;
   status: string;
   alert?: boolean;
+  nav?: DetailNav;
 }) {
   return (
     <div className="detail-panel__header">
@@ -105,6 +134,31 @@ function DetailHeader({
         <span className="detail-panel__title">{title}</span>
         <span className="detail-panel__status">{status}</span>
       </div>
+      {nav && (
+        <div className="detail-panel__nav">
+          <button
+            type="button"
+            className="detail-panel__nav-btn"
+            onClick={nav.onPrev}
+            disabled={nav.index <= 0}
+            aria-label="Previous step"
+          >
+            ‹
+          </button>
+          <span className="detail-panel__nav-count">
+            {nav.index + 1} / {nav.total}
+          </span>
+          <button
+            type="button"
+            className="detail-panel__nav-btn"
+            onClick={nav.onNext}
+            disabled={nav.index >= nav.total - 1}
+            aria-label="Next step"
+          >
+            ›
+          </button>
+        </div>
+      )}
       {alert && <span className="badge badge--low">HITL</span>}
     </div>
   );
