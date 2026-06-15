@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     applicationinsights_connection_string: str | None = Field(
         default=None, alias="APPLICATIONINSIGHTS_CONNECTION_STRING"
     )
+    enable_sensitive_data: bool = Field(default=False, alias="ENABLE_SENSITIVE_DATA")
 
     # --- Parametres d'orchestration (contraintes non negociables) ---
     confidence_threshold: float = Field(default=0.75, alias="CONFIDENCE_THRESHOLD")

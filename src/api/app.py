@@ -23,12 +23,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from src.api import history, meta, runs
-from src.config import REPO_ROOT
+from src.config import REPO_ROOT, get_settings
+from src.observability import configure_observability
 
 DEV_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
 def create_app() -> FastAPI:
+    configure_observability(get_settings())
+
     app = FastAPI(title="Incident RCA Agents API")
     app.state.runs = {}
 

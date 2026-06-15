@@ -270,3 +270,47 @@ de contexte + justification par decision, ordre chronologique.
     avec le temps independamment du code) ainsi que l'echec `package-api:
     building image: signal: killed` observe en parallele (OOM probable du
     build Docker lance en meme temps que le provisioning par `azd up`).
+
+25. **Projet Microsoft Foundry (`accounts/projects`) + instrumentation OTel de
+    l'Agent Framework vers Application Insights : l'orchestration
+    `WorkflowBuilder` est tracee dans Observability > Traces (ai.azure.com).**
+    Cote infra (`infra/resources.bicep`), `openAi` passe de
+    `Microsoft.CognitiveServices/accounts@2024-10-01` (`kind: 'OpenAI'`) a
+    `@2025-06-01` (`kind: 'AIServices'`, `properties.allowProjectManagement:
+    true`) : upgrade GA non destructif documente par
+    [Upgrade Azure OpenAI to Microsoft Foundry](https://learn.microsoft.com/azure/foundry/how-to/upgrade-azure-openai)
+    (endpoint, cles, role assignments et deploiements `gpt-4o`/`gpt-4o-mini`
+    inchanges ; rollback = revenir a `kind: 'OpenAI'`). Une nouvelle ressource
+    `foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01'`
+    (`proj-${resourceToken}`, schema verifie via
+    [accounts/projects](https://learn.microsoft.com/azure/templates/microsoft.cognitiveservices/2025-06-01/accounts/projects))
+    expose le "projet" Foundry ; ses sorties `AZURE_FOUNDRY_PROJECT_NAME` /
+    `AZURE_FOUNDRY_PROJECT_ID` sont propagees par `main.bicep`.
+
+    Cote code, nouveau module `src/observability.py`
+    (`configure_observability(settings)`, appele au demarrage de
+    `src.main.run_demo` et `src.api.app.create_app`) cable
+    `configure_azure_monitor(connection_string=...)` (package
+    `azure-monitor-opentelemetry`, ajoute a `pyproject.toml`) puis
+    `enable_instrumentation(enable_sensitive_data=...)`, pattern documente sur
+    [agent_framework.observability](https://learn.microsoft.com/agent-framework/agents/observability).
+    No-op si `APPLICATIONINSIGHTS_CONNECTION_STRING` est absente (mode
+    hors-ligne / `StubChatClient`, aucune dependance reseau ajoutee). Une fois
+    actif, `workflow.run()` (`src.orchestrator.build_workflow`) emet des spans
+    `workflow.run` / `executor.process <id>` couvrant les six agents, la
+    boucle de reflexion `RootCause <-> GatherEvidence` et la porte HITL
+    `HumanApproval`. Nouveau champ `Settings.enable_sensitive_data` (alias
+    `ENABLE_SENSITIVE_DATA`, defaut `false`, documente dans `.env.example`) :
+    capture optionnelle des prompts/reponses dans les traces, reserve au dev
+    (donnees potentiellement sensibles).
+
+    La connexion Application Insights <-> projet Foundry (categorie
+    `AppInsights` de `Microsoft.CognitiveServices/accounts/projects/connections`)
+    n'a PAS ete codifiee en Bicep : ce type de ressource n'expose `AppInsights`
+    dans `category` qu'a l'alias "latest" non versionne, absent des versions GA
+    `2025-06-01`/`2025-09-01` verifiees — conformement a CLAUDE.md "ne pas
+    deviner les API". Cette connexion est documentee comme etape manuelle
+    ponctuelle dans `docs/deployment.md` §8.12 (portail ai.azure.com, projet
+    Foundry > Agents > Traces > Connect -> selectionner
+    `appi-${resourceToken}`), conformement au parcours officiel
+    [Trace agent runs](https://learn.microsoft.com/azure/foundry/observability/how-to/trace-agent-setup#connect-application-insights-to-your-foundry-project).

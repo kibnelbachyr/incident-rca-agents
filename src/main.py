@@ -38,6 +38,7 @@ from src.models import (
     RootCauseHypothesis,
     SharedContext,
 )
+from src.observability import configure_observability
 from src.orchestrator import build_workflow
 
 SEPARATOR = "=" * 78
@@ -189,6 +190,7 @@ def _ask_approval(request: RemediationApprovalRequest) -> bool:
 
 async def run_demo(log_path: Path) -> None:
     settings = get_settings()
+    configure_observability(settings)
     workflow = build_workflow(settings)
     raw_logs = log_path.read_text(encoding="utf-8")
 

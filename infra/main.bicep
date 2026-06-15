@@ -55,6 +55,9 @@ output AZURE_OPENAI_CHAT_DEPLOYMENT string = resources.outputs.AZURE_OPENAI_CHAT
 output AZURE_OPENAI_CHAT_DEPLOYMENT_LIGHT string = resources.outputs.AZURE_OPENAI_CHAT_DEPLOYMENT_LIGHT
 output AZURE_OPENAI_API_VERSION string = resources.outputs.AZURE_OPENAI_API_VERSION
 
+output AZURE_FOUNDRY_PROJECT_NAME string = resources.outputs.AZURE_FOUNDRY_PROJECT_NAME
+output AZURE_FOUNDRY_PROJECT_ID string = resources.outputs.AZURE_FOUNDRY_PROJECT_ID
+
 output AZURE_AI_SEARCH_ENDPOINT string = resources.outputs.AZURE_AI_SEARCH_ENDPOINT
 output AZURE_AI_SEARCH_INDEX string = resources.outputs.AZURE_AI_SEARCH_INDEX
 

@@ -7,6 +7,14 @@
 // Dockerfile), Container Registry, identite managee, Log Analytics +
 // Application Insights.
 //
+// Azure OpenAI est provisionne en `kind: 'AIServices'` avec
+// `allowProjectManagement: true` (upgrade non destructif d'un compte
+// `kind: 'OpenAI'`, DECISIONS.md #25) et expose un sous-projet Microsoft
+// Foundry (`accounts/projects`) : une fois connecte a `appInsights` (etape
+// manuelle, docs/deployment.md #8.12), l'orchestration `WorkflowBuilder`
+// (src/orchestrator/graph.py) est tracee dans Observability > Traces du
+// projet Foundry (ai.azure.com).
+//
 // Aucun secret en clair : l'identite managee du Container App s'authentifie
 // auprès d'ACR / Azure OpenAI / Azure AI Search / Cosmos DB via des role
 // assignments Microsoft Entra ID (`disableLocalAuth: true` sur Azure OpenAI
@@ -105,17 +113,21 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 
 // --- Azure OpenAI (agents "fort"/"leger", src/agents/clients.py) -------------
 
-resource openAi 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
+// kind 'AIServices' + allowProjectManagement: true : upgrade non destructif
+// depuis 'OpenAI' (endpoint/cles/RBAC/deploiements inchanges), expose le
+// sous-projet Microsoft Foundry `foundryProject` ci-dessous (DECISIONS.md #25).
+resource openAi 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: 'aoai-${resourceToken}'
   location: location
   tags: tags
-  kind: 'OpenAI'
+  kind: 'AIServices'
   sku: {
     name: 'S0'
   }
   properties: {
     customSubDomainName: 'aoai-${resourceToken}'
     disableLocalAuth: true
+    allowProjectManagement: true
   }
 }
 
@@ -176,6 +188,19 @@ resource openAiRoleAssignmentDev 'Microsoft.Authorization/roleAssignments@2022-0
     principalId: principalId
     principalType: principalType
     roleDefinitionId: cognitiveServicesOpenAiUserRoleId
+  }
+}
+
+// Projet Microsoft Foundry (ai.azure.com) : rend l'orchestration
+// `WorkflowBuilder` visible dans Observability > Traces une fois connecte a
+// `appInsights` (etape manuelle, docs/deployment.md #8.12, DECISIONS.md #25).
+resource foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01' = {
+  parent: openAi
+  name: 'proj-${resourceToken}'
+  location: location
+  properties: {
+    displayName: 'Incident RCA Agents'
+    description: 'Diagnostic multi-agents d\'un incident de paiement (CLAUDE.md) : orchestration WorkflowBuilder (LogAnalyzer -> IncidentExtractor -> KBSearch -> RootCause <-> GatherEvidence -> HumanApproval -> Remediation -> Summary).'
   }
 }
 
@@ -377,6 +402,9 @@ output AZURE_OPENAI_ENDPOINT string = openAi.properties.endpoint
 output AZURE_OPENAI_CHAT_DEPLOYMENT string = chatDeploymentName
 output AZURE_OPENAI_CHAT_DEPLOYMENT_LIGHT string = chatDeploymentLightName
 output AZURE_OPENAI_API_VERSION string = openAiApiVersion
+
+output AZURE_FOUNDRY_PROJECT_NAME string = foundryProject.name
+output AZURE_FOUNDRY_PROJECT_ID string = foundryProject.id
 
 output AZURE_AI_SEARCH_ENDPOINT string = 'https://${search.name}.search.windows.net'
 output AZURE_AI_SEARCH_INDEX string = 'incident-kb'

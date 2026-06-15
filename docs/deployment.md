@@ -254,10 +254,11 @@ https://api-xxxxxxxx.<region>.azurecontainerapps.io
 | Ressource | Type Azure | Rôle |
 |-----------|------------|------|
 | Log Analytics workspace | `Microsoft.OperationalInsights/workspaces` | logs du Container Apps Environment |
-| Application Insights | `Microsoft.Insights/components` | observabilité (connection string injectée, OTel non câblé côté code) |
+| Application Insights | `Microsoft.Insights/components` | observabilité : connection string injectée, OTel de l'Agent Framework câblé côté code (`src/observability.py`, §8.12) |
 | Identité managée (user-assigned) | `Microsoft.ManagedIdentity/userAssignedIdentities` | identité du Container App, porteuse des role assignments |
 | Container Registry | `Microsoft.ContainerRegistry/registries` (Basic) | images de l'API |
-| Azure OpenAI | `Microsoft.CognitiveServices/accounts` (kind `OpenAI`, sku `S0`) | + 2 déploiements : `gpt-4o` (`2024-08-06`) et `gpt-4o-mini` (`2024-07-18`), sku `GlobalStandard` |
+| Azure OpenAI / Microsoft Foundry | `Microsoft.CognitiveServices/accounts` (kind `AIServices`, sku `S0`, `allowProjectManagement: true`) | + 2 déploiements : `gpt-4o` (`2024-11-20`) et `gpt-4o-mini` (`2024-07-18`), sku `GlobalStandard` |
+| Projet Microsoft Foundry | `Microsoft.CognitiveServices/accounts/projects` | sous-ressource du compte ci-dessus ; affiche l'orchestration `WorkflowBuilder` dans Observability > Traces une fois connecté à Application Insights (§8.12) |
 | Azure AI Search | `Microsoft.Search/searchServices` (sku `basic`) | base de connaissances RAG (index vide à la création) |
 | Azure Cosmos DB | `Microsoft.DocumentDB/databaseAccounts` (serverless) | base `incidents`, conteneur `records` (partition key `/id`) |
 | Container Apps Environment | `Microsoft.App/managedEnvironments` | environnement d'exécution |
@@ -345,6 +346,44 @@ azd down --purge    # + purge définitive des ressources à suppression différ�
 | `package-api` échoue avec `building image: signal: killed` pendant `npm run build` / `pip install` | `azd up` lance le build Docker **en parallèle** du provisioning (« Packaging overlaps with provisioning ») — sur une machine/conteneur avec peu de RAM, les deux ensemble déclenchent un OOM kill du build Docker | Relancer `azd provision` puis `azd deploy` séparément (séquentiel, pas de chevauchement), ou augmenter la mémoire allouée à Docker, ou relancer `azd up` (souvent transitoire / lié à l'état du cache) |
 | L'UI se charge mais `POST /api/runs` échoue ou les agents lèvent une erreur | Déploiements Azure OpenAI pas encore complètement propagés | Attendre quelques minutes puis réessayer, vérifier `GET /api/meta` |
 | `KBSearch` ne retourne aucun précédent malgré `KB_MODE=azure_search` | Index Azure AI Search vide (provisionné sans pipeline d'indexation) | Indexer `data/knowledge_base.json` (§8.9), ou revenir à `KB_MODE=local` |
+
+### 8.12 Observabilité : tracer l'orchestration dans Microsoft Foundry
+
+`src/observability.py` (`configure_observability`, appelée au démarrage de
+`src.main` et `src.api.app`) câble l'instrumentation OpenTelemetry de l'Agent
+Framework vers Application Insights :
+
+```python
+configure_azure_monitor(connection_string=settings.applicationinsights_connection_string)
+enable_instrumentation(enable_sensitive_data=settings.enable_sensitive_data)
+```
+
+C'est un **no-op si `APPLICATIONINSIGHTS_CONNECTION_STRING` est vide** (mode
+hors-ligne / `StubChatClient`) : aucune dépendance réseau n'est ajoutée à la
+démo locale.
+
+Après `azd up`, `APPLICATIONINSIGHTS_CONNECTION_STRING` est déjà injectée dans
+le Container App (§8.5/§8.6). Chaque `workflow.run()` (les six agents, la
+boucle de réflexion `RootCause <-> GatherEvidence`, la porte HITL
+`HumanApproval`) émet alors des spans `workflow.run` / `executor.process <id>`
+visibles dans Application Insights (Transaction search / Application map).
+
+Pour les voir dans le **projet Microsoft Foundry** (`proj-${resourceToken}`,
+provisionné par `infra/resources.bicep`, sortie `AZURE_FOUNDRY_PROJECT_NAME`),
+connecter une fois la ressource Application Insights au projet — étape
+manuelle, non codifiée en Bicep (DECISIONS.md #25) :
+
+1. https://ai.azure.com → ouvrir le projet `proj-${resourceToken}`.
+2. **Agents** (ou **Observability**) → **Traces** → **Connect**.
+3. Sélectionner la ressource Application Insights existante (`appi-${resourceToken}`).
+
+Les traces apparaissent ensuite dans **Observability > Traces** du projet,
+avec un timeline par exécution montrant chaque agent, la boucle de réflexion
+et la porte HITL.
+
+> `ENABLE_SENSITIVE_DATA=true` (`.env`, dev uniquement) inclut les
+> prompts/réponses des agents dans les traces — ne jamais l'activer en
+> production (données potentiellement sensibles).
 
 ## 9. Tests
 
