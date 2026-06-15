@@ -116,6 +116,10 @@ resource acrPullAssignment 'Microsoft.Authorization/roleAssignments@2022-04-01' 
 // kind 'AIServices' + allowProjectManagement: true : upgrade non destructif
 // depuis 'OpenAI' (endpoint/cles/RBAC/deploiements inchanges), expose le
 // sous-projet Microsoft Foundry `foundryProject` ci-dessous (DECISIONS.md #25).
+// identity SystemAssigned : requis par l'ARM provider pour
+// `allowProjectManagement: true` (sans elle, `azd up` echoue sur
+// `foundryProject` avec BadRequest "To create projects, you must enable a
+// managed identity on your resource", DECISIONS.md #26).
 resource openAi 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   name: 'aoai-${resourceToken}'
   location: location
@@ -123,6 +127,9 @@ resource openAi 'Microsoft.CognitiveServices/accounts@2025-06-01' = {
   kind: 'AIServices'
   sku: {
     name: 'S0'
+  }
+  identity: {
+    type: 'SystemAssigned'
   }
   properties: {
     customSubDomainName: 'aoai-${resourceToken}'

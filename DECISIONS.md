@@ -314,3 +314,25 @@ de contexte + justification par decision, ordre chronologique.
     Foundry > Agents > Traces > Connect -> selectionner
     `appi-${resourceToken}`), conformement au parcours officiel
     [Trace agent runs](https://learn.microsoft.com/azure/foundry/observability/how-to/trace-agent-setup#connect-application-insights-to-your-foundry-project).
+
+26. **`azd up` echoue sur `foundryProject` (`BadRequest: ... To create
+    projects, you must enable a managed identity on your resource`) ->
+    `identity: SystemAssigned` ajoute a `openAi`.** Un `azd up` reel apres
+    DECISIONS.md #25 a echoue au provisioning de
+    `aoai-${resourceToken}/proj-${resourceToken}` avec
+    `BadRequest: Unsupported configuration. To create projects, you must
+    enable a managed identity on your resource.` (le message generique "A
+    resource with this name already exists or is in a conflicting state"
+    n'est que le wrapper ARM standard d'un echec de sous-ressource imbriquee,
+    pas un conflit de nommage distinct). Fix : `identity: { type:
+    'SystemAssigned' }` ajoute au compte `openAi`
+    (`Microsoft.CognitiveServices/accounts`) - `accounts/projects` (#25) ne
+    requiert pas d'identite propre, seul le compte parent en a besoin pour
+    gerer ses projets. Ajout non destructif (nouvelle identite systeme sur une
+    ressource existante, aucun impact sur endpoint/cles/role assignments
+    existants). Si `azd up` echoue encore avec "already exists or is in a
+    conflicting state" apres ce fix, verifier dans le portail Azure si
+    `proj-${resourceToken}` existe deja sous `aoai-${resourceToken}` (onglet
+    "Projects") dans un etat `Failed` et le supprimer avant de relancer (un
+    retry `azd up`/`azd provision` simple suffit normalement, PUT ARM etant
+    idempotent).
