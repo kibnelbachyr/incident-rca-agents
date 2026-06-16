@@ -138,7 +138,16 @@ class GatherEvidenceExecutor(Executor):
     async def handle(self, context: SharedContext, ctx: WorkflowContext[SharedContext, SharedContext]) -> None:
         assert context.root_cause is not None
 
+        old_confidence = context.root_cause.confiance
         context.loop_count += 1
+
+        missing = context.root_cause.preuves_manquantes
+        missing_text = "; ".join(missing[:2]) if missing else "no specific targets"
+        context.routing_note = (
+            f"Confidence {old_confidence:.2f} below threshold — "
+            f"targeted re-analysis initiated (loop {context.loop_count}). "
+            f"Investigating: {missing_text}"
+        )
 
         log_analysis = await self._log_analyzer.run(
             build_log_prompt(context.raw_logs, focus=context.root_cause.preuves_manquantes)

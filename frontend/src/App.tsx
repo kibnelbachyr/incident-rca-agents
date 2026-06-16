@@ -1,12 +1,109 @@
 import { useEffect, useState } from "react";
 
 import { fetchMeta, startRun, submitApproval } from "./api";
+import ActivityFeed, { type FeedEntry } from "./components/ActivityFeed";
 import DetailPanel from "./components/DetailPanel";
 import Footer from "./components/Footer";
 import Header, { type View } from "./components/Header";
 import History from "./components/History";
 import PipelineHUD, { type Phase } from "./components/PipelineHUD";
 import type { ExecutorId, MetaResponse, RemediationApprovalRequest, StepPayload } from "./types";
+
+// --------------------------------------------------------------------------
+// Step code / label maps (shared with ActivityFeed entry construction)
+// --------------------------------------------------------------------------
+
+const STEP_CODES: Record<ExecutorId, string> = {
+  log_analyzer: "01",
+  incident_extractor: "02",
+  kb_search: "03",
+  root_cause: "04",
+  gather_evidence: "RX",
+  human_approval: "HITL",
+  remediation: "05",
+  summary: "06",
+};
+
+const STEP_LABELS: Record<ExecutorId, string> = {
+  log_analyzer: "Log Analyzer",
+  incident_extractor: "Incident Extractor",
+  kb_search: "KB Search",
+  root_cause: "Root Cause",
+  gather_evidence: "Gather Evidence",
+  human_approval: "Human Approval",
+  remediation: "Remediation",
+  summary: "Summary",
+};
+
+function stepSummary(step: StepPayload, threshold: number): string {
+  const { executor_id, context } = step;
+  switch (executor_id) {
+    case "log_analyzer": {
+      const la = context.log_analysis;
+      return la
+        ? `${la.timeline.length} events · ${la.anomalies.length} anomalies · ${la.correlated_events.length} correlations`
+        : "Complete";
+    }
+    case "incident_extractor": {
+      const inc = context.incident;
+      return inc ? `${inc.severite} · ${inc.titre}` : "Complete";
+    }
+    case "kb_search": {
+      const kb = context.kb_matches;
+      return kb?.matches.length
+        ? kb.matches.map((m) => `${m.id} (${Math.round(m.similarite * 100)}%)`).join(" · ")
+        : "No precedents found";
+    }
+    case "root_cause": {
+      const rc = context.root_cause;
+      if (!rc) return "Complete";
+      const ok = rc.confiance >= threshold;
+      return `confidence ${rc.confiance.toFixed(2)} ${ok ? "✓ threshold met" : `— BELOW threshold ${threshold.toFixed(2)}`}`;
+    }
+    case "gather_evidence":
+      return `Loop ${context.loop_count} — targeted re-analysis complete`;
+    case "remediation": {
+      const rp = context.remediation_plan;
+      return rp
+        ? `${rp.immediat.length} immediate · ${rp.court_terme.length} short-term · ${rp.long_terme.length} long-term`
+        : "Complete";
+    }
+    case "summary":
+      return "Full incident report generated";
+    case "human_approval":
+      return "Remediation rejected by human";
+    default:
+      return "Complete";
+  }
+}
+
+function makeStepEntries(step: StepPayload, threshold: number): FeedEntry[] {
+  const { executor_id, context } = step;
+  const entries: FeedEntry[] = [];
+
+  if (executor_id === "gather_evidence" && context.routing_note) {
+    entries.push({
+      id: `route-${context.loop_count}-${Date.now()}`,
+      type: "route",
+      label: "Orchestrator",
+      detail: context.routing_note,
+    });
+  }
+
+  entries.push({
+    id: `step-${executor_id}-${Date.now()}`,
+    type: executor_id === "human_approval" ? "hitl" : "agent",
+    code: STEP_CODES[executor_id],
+    label: STEP_LABELS[executor_id],
+    detail: stepSummary(step, threshold),
+  });
+
+  return entries;
+}
+
+// --------------------------------------------------------------------------
+// App
+// --------------------------------------------------------------------------
 
 export default function App() {
   const [meta, setMeta] = useState<MetaResponse | null>(null);
@@ -18,6 +115,7 @@ export default function App() {
   const [approvalRequest, setApprovalRequest] = useState<RemediationApprovalRequest | null>(null);
   const [finalApproved, setFinalApproved] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [feedEntries, setFeedEntries] = useState<FeedEntry[]>([]);
 
   useEffect(() => {
     fetchMeta()
@@ -33,24 +131,63 @@ export default function App() {
     setFinalApproved(null);
     setErrorMessage(null);
     setRunId(null);
+    setFeedEntries([]);
+
+    const threshold = meta?.confidence_threshold ?? 0.75;
 
     try {
       await startRun({
-        onRunStarted: (data) => setRunId(data.run_id),
+        onRunStarted: (data) => {
+          setRunId(data.run_id);
+          setFeedEntries([
+            {
+              id: "start",
+              type: "start",
+              label: `RUN ${data.run_id.slice(0, 8).toUpperCase()}`,
+              detail: "Orchestration started — analyzing payment-incident.log",
+            },
+          ]);
+        },
         onStep: (data) => {
           setSteps((prev) => [...prev, data]);
+          const newEntries = makeStepEntries(data, threshold);
+          setFeedEntries((prev) => [...prev, ...newEntries]);
         },
         onApprovalRequired: (data) => {
           setApprovalRequest(data.request);
           setPhase("awaiting_approval");
+          setFeedEntries((prev) => [
+            ...prev,
+            {
+              id: "hitl-gate",
+              type: "hitl",
+              label: "Human Approval",
+              detail: "Awaiting human decision — remediation proposed",
+            },
+          ]);
         },
         onDone: (data) => {
           setFinalApproved(data.approved);
           setPhase("done");
+          setFeedEntries((prev) => [
+            ...prev,
+            {
+              id: "done",
+              type: "done",
+              label: "Pipeline complete",
+              detail: data.approved
+                ? "Remediation approved — report generated"
+                : "Remediation rejected — pipeline halted",
+            },
+          ]);
         },
         onError: (data) => {
           setErrorMessage(data.message);
           setPhase("error");
+          setFeedEntries((prev) => [
+            ...prev,
+            { id: "error", type: "error", label: "Error", detail: data.message },
+          ]);
         },
       });
     } catch (err) {
@@ -64,18 +201,37 @@ export default function App() {
     setPhase("running");
     setApprovalRequest(null);
 
+    const threshold = meta?.confidence_threshold ?? 0.75;
+
     try {
       await submitApproval(runId, approved, {
         onStep: (data) => {
           setSteps((prev) => [...prev, data]);
+          const newEntries = makeStepEntries(data, threshold);
+          setFeedEntries((prev) => [...prev, ...newEntries]);
         },
         onDone: (data) => {
           setFinalApproved(data.approved);
           setPhase("done");
+          setFeedEntries((prev) => [
+            ...prev,
+            {
+              id: "done",
+              type: "done",
+              label: "Pipeline complete",
+              detail: data.approved
+                ? "Remediation approved — report generated"
+                : "Remediation rejected — pipeline halted",
+            },
+          ]);
         },
         onError: (data) => {
           setErrorMessage(data.message);
           setPhase("error");
+          setFeedEntries((prev) => [
+            ...prev,
+            { id: "error", type: "error", label: "Error", detail: data.message },
+          ]);
         },
       });
     } catch (err) {
@@ -86,10 +242,9 @@ export default function App() {
 
   const isBusy = phase === "running" || phase === "awaiting_approval";
   const selectedIndex = manualIndex ?? (steps.length > 0 ? steps.length - 1 : null);
-  const selectedStep = selectedIndex !== null ? steps[selectedIndex] ?? null : null;
+  const selectedStep = selectedIndex !== null ? (steps[selectedIndex] ?? null) : null;
   const selectedExecutorId = selectedStep?.executor_id ?? null;
 
-  /** Jump to the most recent occurrence of `id` (reflection loops can repeat an executor). */
   function handleSelectNode(id: ExecutorId) {
     for (let i = steps.length - 1; i >= 0; i--) {
       if (steps[i].executor_id === id) {
@@ -107,7 +262,6 @@ export default function App() {
   function handleNext() {
     if (selectedIndex === null || selectedIndex >= steps.length - 1) return;
     const next = selectedIndex + 1;
-    // Snap back to "follow latest" once we've caught up to the newest step.
     setManualIndex(next >= steps.length - 1 ? null : next);
   }
 
@@ -121,13 +275,16 @@ export default function App() {
         </main>
       ) : (
         <main className="main">
-          <PipelineHUD
-            steps={steps}
-            phase={phase}
-            runId={runId}
-            selectedId={selectedExecutorId}
-            onSelect={handleSelectNode}
-          />
+          <div className="main__top">
+            <PipelineHUD
+              steps={steps}
+              phase={phase}
+              runId={runId}
+              selectedId={selectedExecutorId}
+              onSelect={handleSelectNode}
+            />
+            <ActivityFeed entries={feedEntries} />
+          </div>
 
           <DetailPanel
             step={selectedStep}
@@ -160,7 +317,7 @@ export default function App() {
 function StatusLine({ phase, finalApproved }: { phase: Phase; finalApproved: boolean | null }) {
   switch (phase) {
     case "idle":
-      return <p className="status">Ready to analyze data/payment-incident.log.</p>;
+      return <p className="status">Ready — will analyze data/payment-incident.log.</p>;
     case "running":
       return <p className="status status--active">Orchestration in progress…</p>;
     case "awaiting_approval":
@@ -168,7 +325,8 @@ function StatusLine({ phase, finalApproved }: { phase: Phase; finalApproved: boo
     case "done":
       return (
         <p className="status">
-          Complete — {finalApproved ? "remediation approved, report above." : "remediation rejected by the human."}
+          Complete —{" "}
+          {finalApproved ? "remediation approved, report generated." : "remediation rejected by the human."}
         </p>
       );
     case "error":
