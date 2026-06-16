@@ -27,8 +27,13 @@ def configure_observability(settings: Settings) -> None:
     if not settings.applicationinsights_connection_string:
         return
 
-    from agent_framework.observability import enable_instrumentation
+    from agent_framework.observability import create_resource, enable_instrumentation
     from azure.monitor.opentelemetry import configure_azure_monitor
 
-    configure_azure_monitor(connection_string=settings.applicationinsights_connection_string)
+    configure_azure_monitor(
+        connection_string=settings.applicationinsights_connection_string,
+        resource=create_resource(),
+        enable_live_metrics=True,
+        sampling_ratio=1.0,
+    )
     enable_instrumentation(enable_sensitive_data=settings.enable_sensitive_data)
