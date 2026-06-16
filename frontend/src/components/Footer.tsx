@@ -3,7 +3,7 @@ export default function Footer() {
     <footer className="footer">
       <p className="footer__caption">Built for VivaTech — presented by SoftwareOne</p>
       <div className="footer__brands">
-        <a className="brand-badge" href="https://www.softwareone.com/en" target="_blank" rel="noreferrer">
+        <a className="brand-badge brand-badge--sw1" href="https://www.softwareone.com/en" target="_blank" rel="noreferrer">
           <span className="brand-badge__mark">S1</span>
           <span className="brand-badge__name">SoftwareOne</span>
         </a>

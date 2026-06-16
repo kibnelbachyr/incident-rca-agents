@@ -1,6 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" rx="6" fill="#0C0F1A"/>
-  <!-- SoftwareOne "S" mark -->
+  <!-- SoftwareOne "S" mark — transparent background, for use in header/footer -->
   <path d="M23 9C23 6,11 5.5,8 10C5 14,10 17,16.5 17C23 17,26 19.5,25.5 23C25 26.5,11.5 26.5,8.5 23.5"
         fill="none" stroke="#E5022A" stroke-width="3" stroke-linecap="round"/>
 </svg>

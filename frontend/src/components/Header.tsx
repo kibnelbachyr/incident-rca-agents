@@ -12,12 +12,16 @@ export default function Header({ meta, view, onViewChange }: HeaderProps) {
   return (
     <header className="header">
       <div className="header__title">
-        <img src="/favicon.svg" alt="" className="header__logo" />
-        <div>
-          <h1>
-            Incident RCA <span>// Pipeline</span>
-          </h1>
-          <p>Multi-agent payment incident diagnostics — live demo</p>
+        <img src="/sw1-mark.svg" alt="" className="header__logo" />
+        <div className="header__brand">
+          <span className="header__brand-sw1">SoftwareOne</span>
+          <span className="header__brand-sep" aria-hidden="true" />
+          <div>
+            <h1>
+              Incident RCA <span>Pipeline</span>
+            </h1>
+            <p>Multi-agent payment incident diagnostics — live demo</p>
+          </div>
         </div>
       </div>
 

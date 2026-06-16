@@ -223,7 +223,7 @@ export default function PipelineHUD({ steps, phase, runId, selectedId, onSelect 
       <div className="pipeline-hud__frame">
         <div className="pipeline-hud__readout">
           <span className="pipeline-hud__readout-label">Pipeline Status</span>
-          <span className={`pipeline-hud__readout-value${readout.alert ? " pipeline-hud__readout-value--alert" : ""}`}>
+          <span className={`pipeline-hud__readout-value${readout.alertLevel === "warn" ? " pipeline-hud__readout-value--warn" : readout.alertLevel === "error" ? " pipeline-hud__readout-value--alert" : ""}`}>
             {readout.text}
           </span>
           {runId && <span className="pipeline-hud__readout-run">RUN {runId.slice(0, 8)}</span>}
@@ -244,11 +244,11 @@ export default function PipelineHUD({ steps, phase, runId, selectedId, onSelect 
               <animate attributeName="x2" values="40%;260%" dur="1.4s" repeatCount="indefinite" />
             </linearGradient>
             <linearGradient id="pipeline-scan-alert" x1="-60%" y1="0" x2="40%" y2="0">
-              <stop offset="0%" stopColor="var(--alert)" stopOpacity="0" />
-              <stop offset="50%" stopColor="var(--alert)" stopOpacity="0.85" />
-              <stop offset="100%" stopColor="var(--alert)" stopOpacity="0" />
-              <animate attributeName="x1" values="-60%;160%" dur="0.9s" repeatCount="indefinite" />
-              <animate attributeName="x2" values="40%;260%" dur="0.9s" repeatCount="indefinite" />
+              <stop offset="0%" stopColor="var(--warn)" stopOpacity="0" />
+              <stop offset="50%" stopColor="var(--warn)" stopOpacity="0.85" />
+              <stop offset="100%" stopColor="var(--warn)" stopOpacity="0" />
+              <animate attributeName="x1" values="-60%;160%" dur="1.1s" repeatCount="indefinite" />
+              <animate attributeName="x2" values="40%;260%" dur="1.1s" repeatCount="indefinite" />
             </linearGradient>
           </defs>
 
@@ -342,17 +342,19 @@ export default function PipelineHUD({ steps, phase, runId, selectedId, onSelect 
   );
 }
 
-function phaseReadout(phase: Phase, activeId: ExecutorId | null): { text: string; alert: boolean } {
+type AlertLevel = "none" | "warn" | "error";
+
+function phaseReadout(phase: Phase, activeId: ExecutorId | null): { text: string; alertLevel: AlertLevel } {
   switch (phase) {
     case "idle":
-      return { text: "Standby", alert: false };
+      return { text: "Standby", alertLevel: "none" };
     case "running":
-      return { text: activeId ? NODE_BY_ID.get(activeId)!.label : "Initializing", alert: false };
+      return { text: activeId ? NODE_BY_ID.get(activeId)!.label : "Initializing", alertLevel: "none" };
     case "awaiting_approval":
-      return { text: "Awaiting Approval", alert: true };
+      return { text: "Awaiting Approval", alertLevel: "warn" };
     case "done":
-      return { text: "Complete", alert: false };
+      return { text: "Complete", alertLevel: "none" };
     case "error":
-      return { text: "Error", alert: true };
+      return { text: "Error", alertLevel: "error" };
   }
 }
