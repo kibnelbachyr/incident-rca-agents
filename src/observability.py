@@ -34,5 +34,6 @@ def configure_observability(settings: Settings) -> None:
         connection_string=settings.applicationinsights_connection_string,
         resource=create_resource(),
         enable_live_metrics=True,
+        sampling_ratio=1.0,
     )
     enable_instrumentation(enable_sensitive_data=settings.enable_sensitive_data)

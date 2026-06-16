@@ -18,19 +18,25 @@ same-origin et CORS n'est pas necessaire.
 
 from __future__ import annotations
 
-from fastapi import FastAPI
+# configure_azure_monitor() must run before FastAPI() is instantiated so that
+# opentelemetry-instrumentation-fastapi patches the class in time. Import
+# observability first, call configure, then import FastAPI. (Azure Monitor
+# OpenTelemetry distro Python troubleshooting guide)
+from src.config import REPO_ROOT, get_settings
+from src.observability import configure_observability
+
+configure_observability(get_settings())
+
+from fastapi import FastAPI  # noqa: E402 — must follow configure_observability()
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from src.api import history, meta, runs
-from src.config import REPO_ROOT, get_settings
-from src.observability import configure_observability
 
 DEV_CORS_ORIGINS = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
 
 def create_app() -> FastAPI:
-    configure_observability(get_settings())
 
     app = FastAPI(title="Incident RCA Agents API")
     app.state.runs = {}
