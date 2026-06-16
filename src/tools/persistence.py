@@ -125,7 +125,7 @@ class CosmosPersistenceStore:
         container = self._container_client()
         records = [
             IncidentRecord.model_validate(item)
-            async for item in container.query_items(query="SELECT * FROM c", enable_cross_partition_query=True)
+            async for item in container.query_items(query="SELECT * FROM c")
         ]
         records.sort(key=lambda record: record.started_at, reverse=True)
         return [_summarize(record) for record in records[:limit]]
