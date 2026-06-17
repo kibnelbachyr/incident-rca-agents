@@ -12,7 +12,7 @@ export default function Header({ meta, view, onViewChange }: HeaderProps) {
   return (
     <header className="header">
       <div className="header__title">
-        <img src="/softwareone-logo.png" alt="SoftwareOne" className="header__logo" />
+        <img src="/softwareone-logo.png" alt="SoftwareOne" className="header__logo" style={{ width: "120px />
         <img src="/vivatech-logo.png" alt="VivaTech" className="header__logo" />
         <div className="header__brand">
           <span className="header__brand-sep" aria-hidden="true" />
@@ -42,7 +42,7 @@ export default function Header({ meta, view, onViewChange }: HeaderProps) {
 
       <div className="header__event" aria-label="VivaTech Paris 2026">
         <span className="header__event-mark">VT</span>
-        <span className="header__event-name">VivaTech Paris 2025</span>
+        <span className="header__event-name">VivaTech Paris 2026</span>
       </div>
 
       {meta && (
