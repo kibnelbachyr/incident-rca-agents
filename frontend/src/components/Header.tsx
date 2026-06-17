@@ -13,7 +13,7 @@ export default function Header({ meta, view, onViewChange }: HeaderProps) {
     <header className="header">
       <div className="header__title">
         <img src="/softwareone-logo.png" alt="SoftwareOne" className="header__logo" />
-        <img src="/vivatech-logo.png" alt="VivaTech" className="header__logo" style={{ width: "120px", height : "auto" }}  />
+        <img src="/vivatech-logo.png" alt="VivaTech" className="header__logo" style={{ width: "60px", height : "auto" }}  />
         <div className="header__brand">
           <span className="header__brand-sep" aria-hidden="true" />
           <div>
