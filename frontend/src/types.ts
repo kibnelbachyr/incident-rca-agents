@@ -67,6 +67,7 @@ export interface SharedContext {
   root_cause_history: RootCauseHypothesis[];
   evidence_log: string[];
   approved: boolean | null;
+  routing_note?: string;
 }
 
 export interface RemediationApprovalRequest {

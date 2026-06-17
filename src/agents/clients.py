@@ -55,70 +55,81 @@ _STUB_RESPONSES: dict[str, dict[str, Any] | list[dict[str, Any]]] = {
         # 1er passage : analyse initiale des logs bruts.
         {
             "timeline": [
-                {"time": "14:00:11", "event": "Deploiement de payment-api v2.4.1 en production (rolling, 6 pods)"},
-                {"time": "14:00:12", "event": "Application de la config db.max_pool_size=20 (precedemment 40)"},
-                {"time": "14:22:47", "event": "Pool de connexions DB sature a 100% (20/20), aucune connexion libre"},
-                {"time": "14:23:15", "event": "Premiers connection acquisition timeout apres 5000ms"},
-                {"time": "14:24:50", "event": "Taux d'erreur a 38% sur 60s - candidat SEV"},
-                {"time": "14:26:30", "event": "Tempete de retries clients : trafic entrant x3.4 vs normal"},
+                {"time": "14:00:11", "event": "Deployment payment-api v2.4.1 started (rolling, 6 pods, 90s window)"},
+                {"time": "14:00:12", "event": "Config applied — db.max_pool_size set to 20 (previous value: 40) via ConfigMap patch"},
+                {"time": "14:04:33", "event": "Rolling deployment complete — all 6 pods on v2.4.1"},
+                {"time": "14:16:02", "event": "DB pool utilisation crosses 70% threshold (first alert suppressed — below configured 85% limit)"},
+                {"time": "14:22:47", "event": "Pool 100% saturated: 20/20 connections acquired, 0 available"},
+                {"time": "14:23:15", "event": "First connection acquisition timeout after 5 000ms — payment persistence failing"},
+                {"time": "14:23:31", "event": "Stripe API latency: 780ms p95 (baseline 600ms, +30% deviation)"},
+                {"time": "14:24:50", "event": "Error rate at 38% over 60s window — SEV-1 threshold exceeded"},
+                {"time": "14:26:30", "event": "Client retry storm: inbound traffic 3.4× baseline, amplifying pool backpressure"},
+                {"time": "14:29:18", "event": "Stripe API latency returns to 640ms — within normal variance"},
             ],
             "anomalies": [
-                "Utilisation du pool de connexions DB passe de 70% a 100% en 6 minutes (14:16-14:22)",
-                "Taux d'erreur de paiement passe de 0,18% a 38% en moins de 25 minutes",
-                "Tempete de retries cote client qui amplifie la charge sur un pool deja sature",
+                "DB connection pool: 70% → 100% saturation in under 7 minutes (14:16–14:22), followed by immediate cascading persistence failures",
+                "Payment error rate: 0.18% → 38% in 25 minutes — catastrophic success rate degradation",
+                "Client retry storm at 3.4× baseline — positive feedback loop amplifying already saturated pool",
+                "Stripe gateway latency transient spike +30% (14:23–14:29), self-resolved — temporal overlap with error surge but independent trajectory",
+                "Connection acquisition timeouts unbounded (no explicit timeout configured) — requests block indefinitely",
             ],
             "correlated_events": [
-                "Le deploiement v2.4.1 (14:00:11) precede la saturation du pool (14:22:47) d'environ 22 minutes",
-                "La modification de db.max_pool_size a ete appliquee au moment exact du deploiement",
+                "Deployment v2.4.1 (14:00:11) preceded pool saturation (14:22:47) by 22 min 36s — consistent with load accumulation under halved pool capacity",
+                "db.max_pool_size change applied at the exact deployment timestamp: the only infrastructure delta between v2.4.0 and v2.4.1 visible in logs",
+                "Stripe latency spike (14:23–14:29) coincides with error surge but self-resolves: insufficient to explain 18-minute persistence of saturation",
             ],
         },
-        # 2e passage (GatherEvidence) : focus sur le diff de config et la latence Stripe.
+        # 2e passage (GatherEvidence) : focus sur le diff de config et la trajectoire Stripe.
         {
             "timeline": [
-                {"time": "14:00:12", "event": "Diff de deploiement confirme : db.max_pool_size 40 -> 20"},
-                {"time": "14:23:31", "event": "Latence d'appel Stripe 780ms (p95 de reference 600ms)"},
-                {"time": "14:24:33", "event": "Latence d'appel Stripe 820ms (pic observe)"},
-                {"time": "14:29:18", "event": "Latence Stripe revenue a 640ms, dans la variance normale"},
-                {"time": "14:30:05", "event": "Pool DB toujours sature a 100% alors que Stripe est redevenu normal"},
-                {"time": "14:35:47", "event": "Revue de diff de l'oncall : confirmation db.max_pool_size 40 -> 20 dans v2.4.1"},
+                {"time": "14:00:12", "event": "ConfigMap diff confirmed: db.max_pool_size 40 → 20 in v2.4.1 (only config change)"},
+                {"time": "14:23:31", "event": "Stripe API latency: 780ms p95 (single spike, within Stripe's documented variance range)"},
+                {"time": "14:24:33", "event": "Stripe API latency: 820ms (peak value observed, self-correcting)"},
+                {"time": "14:29:18", "event": "Stripe API latency: 640ms — fully normalised, back to baseline"},
+                {"time": "14:30:05", "event": "DB pool: still 100% saturated at 14:30, 1 minute after Stripe normalised — no correlation"},
+                {"time": "14:35:47", "event": "On-call diff review: v2.4.1 ConfigMap confirms db.max_pool_size was the sole change"},
             ],
             "anomalies": [
-                "La latence Stripe redevient normale (640ms) des 14:29:18, alors que la saturation du pool DB persiste au-dela de 14:30",
-                "Le diff du deploiement v2.4.1 confirme une reduction de moitie de db.max_pool_size (40 -> 20)",
+                "Stripe latency normalised (640ms) at 14:29 but pool saturation persisted until rollback at 14:41 — 12-minute gap eliminates Stripe as causal factor",
+                "v2.4.1 ConfigMap diff: db.max_pool_size is the only infrastructure change — no other config variables modified",
             ],
             "correlated_events": [
-                "Le retour a la normale de la latence Stripe (14:29) ne coincide pas avec la fin de l'incident : Stripe n'explique pas la duree de la saturation",
-                "La reduction de db.max_pool_size coincide exactement avec l'horodatage du deploiement v2.4.1 (14:00:11-12)",
+                "Stripe recovery (14:29) did NOT correlate with incident recovery — Stripe is not the root cause",
+                "Pool saturation onset ~22 min post-deploy matches expected depletion under halved capacity (~18 TPS nominal load)",
             ],
         },
     ],
     "IncidentExtractor": {
-        "titre": "Pic d'echecs de paiement",
+        "titre": "SEV-1: DB pool exhaustion following payment-api v2.4.1 deployment",
         "severite": "SEV-1",
-        "services": ["payment-api", "db-pool"],
-        "fenetre": "14:23 -> en cours",
+        "services": ["payment-api", "db-pool", "postgres-primary"],
+        "fenetre": "14:23 → 14:41 UTC (18 minutes, resolved by rollback)",
         "symptomes": [
-            "echec de persistance des transactions (no DB connection)",
-            "pool de connexions DB sature a 100%",
-            "tempete de retries cote client amplifiant la charge",
+            "DB connection pool saturated at 100% (20/20) — zero connections available for 18 minutes",
+            "Payment transaction persistence failures: 38% error rate at peak (vs 0.18% baseline)",
+            "Client retry storm amplifying inbound load to 3.4× baseline, worsening pool backpressure",
+            "Connection acquisition timeouts unbounded — no hard limit configured, requests queued indefinitely",
+            "Stripe API latency transient (+30%) — self-resolved, investigated and ruled out as causal factor",
         ],
     },
     "KBSearch": {
         "matches": [
             {
                 "id": "INC-204",
-                "similarite": 0.82,
+                "similarite": 0.98,
                 "resolution": (
-                    "Rollback du deploiement et restauration de db.max_pool_size a 40 ; "
-                    "ajout d'une alerte sur l'utilisation du pool de connexions."
+                    "Rollback deployment to v2.4.0 and restore db.max_pool_size=40 via emergency ConfigMap patch. "
+                    "Root cause was identical: ConfigMap change halved the pool, exhausting connections under nominal load. "
+                    "Prevention applied: mandatory infrastructure config review gate added to CI pipeline."
                 ),
             },
             {
                 "id": "INC-187",
-                "similarite": 0.61,
+                "similarite": 0.52,
                 "resolution": (
-                    "Mise en place d'un circuit breaker et de retries avec backoff sur "
-                    "les appels au processeur de paiement externe (Stripe)."
+                    "Deployed circuit breaker with exponential backoff on Stripe payment processor calls. "
+                    "Root cause: external processor degradation causing cascading timeouts and connection hold-time spikes. "
+                    "Pattern mismatch here: Stripe recovered independently; pool saturation persisted — this precedent does not apply."
                 ),
             },
         ],
@@ -127,84 +138,119 @@ _STUB_RESPONSES: dict[str, dict[str, Any] | list[dict[str, Any]]] = {
         # 1er passage : confiance insuffisante, deux hypotheses concurrentes.
         {
             "cause": (
-                "Deux hypotheses concurrentes : (a) la reduction de db.max_pool_size par le "
-                "deploiement v2.4.1, (b) une degradation de la latence du processeur de paiement Stripe"
+                "Two competing hypotheses remain unresolved with current evidence: "
+                "(A) db.max_pool_size halved by v2.4.1 ConfigMap patch, saturating the pool under nominal load; "
+                "(B) Stripe gateway degradation causing connection hold-time spikes that exhaust the pool via backpressure"
             ),
             "raisonnement": (
-                "La saturation du pool de connexions DB et la hausse de la latence Stripe sont "
-                "toutes deux correlees temporellement avec le pic du taux d'erreur a 14:24. Les "
-                "precedents INC-204 (config pool) et INC-187 (latence Stripe) collent tous les deux "
-                "au profil de symptomes observe. Aucune preuve definitive ne permet encore de "
-                "departager ces deux pistes."
+                "Both hypotheses explain the pool saturation and error surge. The v2.4.1 deployment at 14:00 halved "
+                "db.max_pool_size from 40 to 20 immediately before the incident window — a strong temporal correlation. "
+                "Simultaneously, Stripe API latency elevated to 780ms at 14:23 (+30%), which could independently "
+                "extend transaction hold-times and exhaust connections via a different mechanism. "
+                "Precedent INC-204 matches hypothesis A (pool config change, same resolution). "
+                "Precedent INC-187 matches hypothesis B (Stripe degradation, different resolution). "
+                "The two precedents point to opposite root causes and therefore incompatible remediation strategies. "
+                "Definitive discrimination requires: the exact pool config diff from the v2.4.1 ConfigMap, "
+                "and the Stripe latency trajectory after 14:26 — whether it self-resolved while the pool remained "
+                "saturated is the critical discriminator between the two hypotheses."
             ),
             "confiance": 0.55,
             "preuves_manquantes": [
-                "Diff de configuration du deploiement v2.4.1 : valeur de db.max_pool_size avant/apres",
-                "Evolution de la latence Stripe apres 14:26 (retour a la normale ou degradation persistante)",
+                "v2.4.1 ConfigMap diff: confirm db.max_pool_size value before and after deployment",
+                "Stripe latency trajectory after 14:26 — did it recover while pool remained saturated?",
+                "DB pool utilisation trend between 14:04 (deploy complete) and 14:16 (70% threshold) to model depletion rate",
             ],
         },
-        # 2e passage (apres GatherEvidence) : cause tranchee, Stripe ecarte.
+        # 2e passage (après GatherEvidence) : cause tranchée, Stripe écarté.
         {
             "cause": (
-                "Le deploiement payment-api v2.4.1 a reduit db.max_pool_size de 40 a 20, saturant "
-                "le pool de connexions DB sous la charge nominale"
+                "Deployment payment-api v2.4.1 reduced db.max_pool_size from 40 to 20 via ConfigMap patch, "
+                "exhausting the DB connection pool under nominal production load within 22 minutes"
             ),
             "raisonnement": (
-                "Le diff de deploiement confirme la reduction de db.max_pool_size de 40 a 20, "
-                "appliquee exactement au moment du deploiement (14:00:11-12). Le pool atteint 100% "
-                "d'utilisation 22 minutes plus tard et les echecs de persistance demarrent "
-                "immediatement apres. La latence Stripe, elevee un court instant (780-820ms), est "
-                "revenue a la normale (640ms) des 14:29 alors que la saturation du pool persistait : "
-                "elle n'explique donc pas la duree ni la severite de l'incident. Cette piste est ecartee."
+                "Evidence gathered in reflection loop 1 conclusively resolves the ambiguity: "
+                "(1) v2.4.1 ConfigMap diff confirms db.max_pool_size reduced 40→20 — the only infrastructure change in this deployment. "
+                "(2) Stripe API latency returned to baseline (640ms) at 14:29, yet pool saturation persisted until rollback at 14:41. "
+                "The 12-minute gap between Stripe recovery and incident resolution eliminates hypothesis B entirely: "
+                "if Stripe were the cause, incident recovery would have followed Stripe's normalisation. It did not. "
+                "(3) The 22-minute depletion window is mechanistically consistent with ~18 TPS nominal payment load "
+                "exhausting 20 connections, whereas 40 connections would have provided sufficient headroom. "
+                "Hypothesis B (Stripe degradation) is eliminated. Hypothesis A (pool config change) is confirmed. "
+                "Precedent INC-204 is a direct match: identical root cause, identical resolution path."
             ),
-            "confiance": 0.88,
+            "confiance": 0.92,
             "preuves_manquantes": [],
         },
     ],
     "Remediation": {
         "immediat": [
-            "Rollback de payment-api vers v2.4.0 (ou remonter db.max_pool_size a 40 sans rollback complet)",
+            "Rollback payment-api to v2.4.0 OR apply emergency ConfigMap patch restoring db.max_pool_size=40 without full rollback (faster, lower risk)",
+            "Drain and reset DB connection pool: force-close stale acquired connections to unblock recovery immediately",
+            "Apply client-side backoff config: exponential backoff, max 3 retries, 2s base delay — suppress retry storm",
         ],
         "court_terme": [
-            "Ajouter un timeout d'acquisition de connexion explicite et le journaliser",
-            "Ajouter une alerte a 80% d'utilisation du pool de connexions DB",
+            "Add Prometheus alert: pool utilisation >80% for >60s triggers PagerDuty (currently no alert on this metric — first notification came from users)",
+            "Set explicit connection acquisition timeout: hard limit 3 000ms with structured error log and 503 response (currently unbounded)",
+            "Update deployment runbook: any ConfigMap change to db.*, worker_count, or queue_depth requires load-test sign-off before prod rollout",
+            "Add automated canary: 5% traffic to new version for 10 min, automatic rollback if error rate >2%",
         ],
         "long_terme": [
-            "Mettre en place une porte de revue (gate) obligatoire sur les changements de "
-            "configuration infra avant deploiement",
+            "Introduce mandatory infrastructure config review gate in CI pipeline: changes to pool, worker, or queue parameters require Platform team approval",
+            "Evaluate PgBouncer connection pooler to decouple application pool config from database connection limits",
+            "Implement connection pool headroom trending dashboard: visualise capacity buffer over time to catch erosion before exhaustion",
         ],
     },
     "Summary": {
-        "titre": "INCIDENT SEV-1 - Pic d'echecs de paiement",
-        "fenetre": "14:23 -> 14:41 (resolu)",
-        "impact": "38% des transactions en echec",
+        "titre": "INCIDENT SEV-1 — DB Pool Exhaustion (payment-api v2.4.1)",
+        "fenetre": "14:23 → 14:41 UTC (18 min, resolved by rollback)",
+        "impact": "38% payment transaction failure rate at peak · ~3 400 failed transactions estimated",
         "cause_racine": (
-            "Le deploiement payment-api v2.4.1 a reduit max_pool_size de 40 a 20. Le pool s'est "
-            "sature a 14:23, empechant la persistance des transactions. La latence Stripe observee "
-            "etait dans la normale (fausse piste ecartee)."
+            "Deployment v2.4.1 halved db.max_pool_size from 40 to 20 via ConfigMap patch. "
+            "Pool exhausted under nominal load within 22 min. Stripe latency transient was a red herring — "
+            "eliminated after targeted evidence gathering (Stripe recovered at 14:29; pool remained saturated until 14:41)."
         ),
-        "confiance": 0.88,
+        "confiance": 0.92,
         "remediation": [
-            "Rollback v2.4.1 (applique apres validation)",
-            "Timeout d'acquisition + alerte a 80% du pool",
-            "Gate de revue sur les changements de config infra",
+            "IMMEDIATE  — Rollback v2.4.1, restore db.max_pool_size=40, drain stale connections, apply retry backoff",
+            "SHORT-TERM — Pool utilisation alert >80%, acquisition timeout 3 000ms, canary deployment policy, runbook update",
+            "LONG-TERM  — CI infra config review gate, PgBouncer evaluation, capacity headroom dashboard",
         ],
-        "precedent_lie": "INC-204 (meme schema, meme resolution)",
+        "precedent_lie": "INC-204 (identical root cause — pool config change — same resolution path)",
         "texte": (
-            "INCIDENT SEV-1 — Pic d'échecs de paiement\n"
-            "Fenêtre : 14:23 → 14:41 (résolu)   Impact : 38% des transactions en échec\n"
+            "INCIDENT REPORT — SEV-1\n"
+            "═══════════════════════════════════════════════════\n"
+            " Title    DB Pool Exhaustion — payment-api v2.4.1\n"
+            " Window   14:23 → 14:41 UTC  (18 min resolved)\n"
+            " Impact   38% payment failure rate · ~3 400 transactions lost\n"
+            " Decision Rollback approved and applied\n"
+            "───────────────────────────────────────────────────\n"
             "\n"
-            "CAUSE RACINE (confiance 0,88)\n"
-            "Le déploiement payment-api v2.4.1 a réduit max_pool_size de 40 à 20.\n"
-            "Le pool s'est saturé à 14:23, empêchant la persistance des transactions.\n"
-            "La latence Stripe observée était dans la normale (fausse piste écartée).\n"
+            "ROOT CAUSE  (confidence 0.92 / threshold 0.75)\n"
+            "Deployment v2.4.1 halved db.max_pool_size from 40 to 20\n"
+            "via ConfigMap patch — the only infrastructure change in\n"
+            "this release. Under nominal production load (~18 TPS), the\n"
+            "pool exhausted within 22 minutes, blocking all transaction\n"
+            "persistence. A Stripe API latency transient (+30%) was\n"
+            "investigated as hypothesis B and eliminated: Stripe recovered\n"
+            "at 14:29 while pool saturation persisted until 14:41 — a\n"
+            "12-minute gap that rules out Stripe as the causal factor.\n"
             "\n"
-            "REMÉDIATION\n"
-            "1. Rollback v2.4.1 (appliqué après validation)\n"
-            "2. Timeout d'acquisition + alerte à 80% du pool\n"
-            "3. Gate de revue sur les changements de config infra\n"
+            "AI ORCHESTRATION TRACE\n"
+            "  Loop 1 → Root Cause confidence: 0.55  (below 0.75)\n"
+            "    Missing: pool diff, Stripe trajectory post-14:26\n"
+            "  Loop 2 → Root Cause confidence: 0.92  ✓ threshold met\n"
+            "    Stripe hypothesis eliminated. DB pool config confirmed.\n"
             "\n"
-            "PRÉCÉDENT LIÉ : INC-204 (même schéma, même résolution)"
+            "REMEDIATION (proposed — not executed on live systems)\n"
+            "  IMMEDIATE   Rollback to v2.4.0; restore db.max_pool_size=40\n"
+            "              Drain stale connections; apply client retry backoff\n"
+            "  SHORT-TERM  Pool utilisation alert (>80%); timeout 3 000ms\n"
+            "              Canary deployment policy; runbook updated\n"
+            "  LONG-TERM   CI infra config review gate; PgBouncer eval\n"
+            "              Capacity headroom trending dashboard\n"
+            "\n"
+            "PRECEDENT  INC-204 — identical pattern, same resolution\n"
+            "═══════════════════════════════════════════════════\n"
         ),
     },
 }

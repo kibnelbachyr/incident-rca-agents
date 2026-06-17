@@ -171,3 +171,6 @@ class SharedContext(BaseModel):
 
     # Porte de validation humaine.
     approved: bool | None = None
+
+    # Note de routage positionnée par GatherEvidenceExecutor.
+    routing_note: str | None = None
