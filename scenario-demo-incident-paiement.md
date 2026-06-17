@@ -130,9 +130,9 @@ Avec les nouvelles preuves : le déploiement `v2.4.1` a réduit `max_pool_size` 
 la latence Stripe est dans la variation normale et n'explique pas la saturation.
 
 Sortie : **cause racine = changement de `max_pool_size` (40 → 20) dans v2.4.1**,
-**confiance = 0,88**. Au-dessus du seuil → on continue.
+**confiance = 0,92**. Au-dessus du seuil → on continue.
 
-> *« Cette fois c'est tranché : la latence Stripe était une fausse piste. La vraie cause, c'est le déploiement. Confiance 0,88, on avance. »*
+> *« Cette fois c'est tranché : la latence Stripe était une fausse piste. La vraie cause, c'est le déploiement. Confiance 0,92, on avance. »*
 
 ### ⭐ Moment fort n°2 — La validation humaine
 
@@ -163,7 +163,7 @@ Sortie : le rapport d'incident final (section 5).
 INCIDENT SEV-1 — Pic d'échecs de paiement
 Fenêtre : 14:23 → 14:41 (résolu)   Impact : 38% des transactions en échec
 
-CAUSE RACINE (confiance 0,88)
+CAUSE RACINE (confiance 0,92)
 Le déploiement payment-api v2.4.1 a réduit max_pool_size de 40 à 20.
 Le pool s'est saturé à 14:23, empêchant la persistance des transactions.
 La latence Stripe observée était dans la normale (fausse piste écartée).
