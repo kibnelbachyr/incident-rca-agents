@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2260 620" role="img" aria-label="SoftwareOne">
+  <circle cx="310" cy="310" r="310" fill="#000000"/>
+  <text x="55" y="360" font-family="'Helvetica Neue', Arial, sans-serif" font-weight="800"
+        font-size="92" fill="#FFFFFF" textLength="440" lengthAdjust="spacingAndGlyphs">software</text>
+  <circle cx="860" cy="310" r="310" fill="#000000"/>
+  <circle cx="860" cy="310" r="175" fill="#FFFFFF"/>
+  <text x="1230" y="590" font-family="'Arial Black', 'Helvetica Neue', Arial, sans-serif" font-weight="900"
+        font-size="780" fill="#000000" textLength="950" lengthAdjust="spacingAndGlyphs">ne</text>
+</svg>
