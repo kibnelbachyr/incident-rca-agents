@@ -32,7 +32,7 @@ class ScenarioDef:
 SCENARIOS: dict[str, ScenarioDef] = {
     "db_pool": ScenarioDef(
         id="db_pool",
-        label="DB pool exhaustion",
+        label="1",
         description=(
             "A deploy halves the DB connection pool via a config change; saturation and a "
             "payment failure spike surface within ~22 minutes. A transient Stripe latency blip "
@@ -42,7 +42,7 @@ SCENARIOS: dict[str, ScenarioDef] = {
     ),
     "paypal_integration": ScenarioDef(
         id="paypal_integration",
-        label="PayPal webhook regression",
+        label="2",
         description=(
             "A payment-api release migrates the PayPal SDK and silently breaks webhook "
             "signature verification. Synchronous payments keep working, so the incident is "
