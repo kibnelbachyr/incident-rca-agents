@@ -17,7 +17,7 @@ export default function Header({ meta, view, onViewChange }: HeaderProps) {
           <span className="header__brand-sep" aria-hidden="true" />
           <div>
             <h1>
-              Incident RCA <span>Pipeline</span>
+              Incident RCA
             </h1>
             <p>Multi-agent AI diagnostics — live orchestration demo</p>
           </div>
@@ -39,7 +39,7 @@ export default function Header({ meta, view, onViewChange }: HeaderProps) {
         </button>
       </nav>
 
-      <div className="header__event" aria-label="VivaTech Paris 2025">
+      <div className="header__event" aria-label="VivaTech Paris 2026">
         <span className="header__event-mark">VT</span>
         <span className="header__event-name">VivaTech Paris 2025</span>
       </div>
