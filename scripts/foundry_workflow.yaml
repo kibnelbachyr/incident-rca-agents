@@ -188,12 +188,28 @@ trigger:
     # --- Porte HITL (src/orchestrator/executors.py HumanApprovalExecutor) ---
     # Aucune remediation n'est proposee/affichee sans validation humaine
     # explicite (CLAUDE.md - contraintes a ne pas contourner).
+    # Forme reelle confirmee via l'exemple officiel ConfirmInput.yaml du depot
+    # microsoft/agent-framework (dotnet/samples/03-workflows/Declarative/
+    # ConfirmInput) - PAS celle documentee par le tutoriel Agent Framework
+    # (question.text / variable), qui a pourtant ete rejetee par l'API
+    # Foundry live (DECISIONS.md #30 addendum) : le vrai champ est `property`
+    # (pas `variable`), le prompt est `prompt.kind` + `prompt.text` (liste, pas
+    # `question.text` scalaire), et `entity` est obligatoire. StringPrebuiltEntity
+    # choisi car deja confirme fonctionnel dans l'exemple officiel - la
+    # comparaison `= "yes"` en aval reste donc valide (pas d'entite booleenne
+    # non confirmee).
     - kind: Question
       id: human_approval_gate
       displayName: Human-in-the-loop approval gate
-      question:
-        text: =Concat("Root cause hypothesis - ", Local.RootCauseResult.cause, " (confidence ", Local.RootCauseResult.confiance, "). Approve proceeding to remediation? (yes/no)")
-      variable: Local.approved
+      alwaysPrompt: false
+      autoSend: false
+      property: Local.approved
+      prompt:
+        kind: Message
+        text:
+          - =Concat("Root cause hypothesis - ", Local.RootCauseResult.cause, " (confidence ", Local.RootCauseResult.confiance, "). Approve proceeding to remediation? (yes/no)")
+      entity:
+        kind: StringPrebuiltEntity
       default: "no"
 
     - kind: If

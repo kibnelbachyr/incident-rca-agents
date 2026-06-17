@@ -517,3 +517,40 @@ de contexte + justification par decision, ordre chronologique.
     d'erreur a l'enregistrement, mais seul un appel reel contre un projet
     Foundry fait foi pour une fonctionnalite preview - a corriger au cas par
     cas si une nouvelle erreur `invalid_payload` apparait.
+
+    Addendum 2 (deuxieme execution reelle, apres correction de l'addendum
+    1) : risque annonce confirme - l'action `Question` (`human_approval_gate`,
+    la porte HITL elle-meme) est rejetee a son tour avec
+    `invalid_payload: Missing required properties for element:
+    human_approval_gate (Question)`, alors que sa forme (`question.text` /
+    `variable` / `default`) correspondait deja exactement au tableau de
+    proprietes de la doc officielle "Declarative Workflows". La doc Microsoft
+    Learn (page tutoriel) n'est donc pas fiable pour ce kind d'action non
+    plus. Source plus fiable trouvee : les exemples reels et executables du
+    depot `microsoft/agent-framework` lui-meme
+    (`dotnet/samples/03-workflows/Declarative/ConfirmInput/ConfirmInput.yaml`),
+    dans la meme enveloppe `kind: Workflow` / `trigger: OnConversationStart`
+    que ce fichier, montrent une forme structurellement differente pour
+    `Question` : `property` (pas `variable`) pour la variable de sortie,
+    `prompt.kind: Message` + `prompt.text` (liste, pas `question.text`
+    scalaire) pour le message, et `entity` (obligatoire, absent de la doc
+    tutoriel) pour typer la reponse attendue. Fix : forme alignee sur cet
+    exemple confirme, avec `entity.kind: StringPrebuiltEntity` plutot qu'une
+    variante booleenne (`BooleanPrebuiltEntity` ou autre) qui n'a pu etre
+    confirmee dans aucune source - choix qui preserve aussi la comparaison
+    `=Local.approved = "yes"` (chaine) deja utilisee par `check_approval` en
+    aval, sans la faire dependre d'un type booleen non verifie. `displayName`
+    est conserve malgre son absence des exemples officiels : deja confirme
+    accepte par l'API live pour les autres kinds d'action de ce fichier
+    (`SetVariable`, `If`, `InvokeAzureAgent`, `SendActivity`, `GotoAction`).
+
+    Lecon generale : pour cette fonctionnalite preview, la doc prose
+    (tutoriel Agent Framework) peut diverger de ce que l'API Foundry valide
+    reellement, mais les echantillons YAML executables du depot
+    `microsoft/agent-framework` (dossier `dotnet/samples/*/Declarative/`)
+    s'en sont averes une source plus fiable jusqu'ici. Risque residuel
+    desormais limite aux actions situees apres `human_approval_gate` et pas
+    encore exercees par un enregistrement reel : les `InvokeAzureAgent`
+    (Remediation, Summary) et `SendActivity` imbriques dans `check_approval`,
+    et `EndWorkflow` - a corriger au cas par cas si une nouvelle erreur
+    `invalid_payload` apparait.
