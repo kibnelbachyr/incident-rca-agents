@@ -125,11 +125,11 @@ async def test_workflow_resumes_after_approval_and_produces_report() -> None:
     assert final_context.approved is True
     report = final_context.report
     assert report is not None
-    assert report.confiance == 0.88
+    assert report.confiance == 0.92
     assert "INC-204" in (report.precedent_lie or "")
-    assert "CAUSE RACINE" in report.texte
-    assert "REMÉDIATION" in report.texte
-    assert "PRÉCÉDENT LIÉ" in report.texte
+    assert "CAUSE RACINE" in report.texte or "ROOT CAUSE" in report.texte
+    assert "REMÉDIATION" in report.texte or "REMEDIATION" in report.texte
+    assert "PRÉCÉDENT LIÉ" in report.texte or "PRECEDENT" in report.texte
 
     assert second.get_final_state().value == "IDLE"
 

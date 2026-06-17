@@ -605,7 +605,14 @@ class AzureOpenAIStructuredChatClient:
         key = (agent_name, response_model)
         agent = self._agents.get(key)
         if agent is None:
+            # id=agent_name (au lieu du uuid4 aleatoire par defaut, cf.
+            # agent_framework._agents.BaseAgent.__init__) : l'instrumentation OTel du
+            # framework source `gen_ai.agent.id` depuis `Agent.id`, pas `Agent.name`
+            # (agent_framework.observability.AgentTelemetryLayer). Un id stable est requis
+            # pour que les traces se rattachent a l'enregistrement External Agent Foundry
+            # (scripts/register_foundry_agents.py, docs/deployment.md #8.13).
             agent = self._chat_client.as_agent(
+                id=agent_name,
                 name=agent_name,
                 instructions=instructions,
                 default_options={"response_format": response_model},

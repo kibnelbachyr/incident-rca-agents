@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     # "managed_identity" -> DefaultAzureCredential (deploye sur Azure)
     azure_auth_mode: Literal["cli", "managed_identity"] = Field(default="cli", alias="AZURE_AUTH_MODE")
 
+    # Endpoint du projet Microsoft Foundry (forme "https://<compte>.services.ai.azure.com/api/projects/<projet>"),
+    # provisionne par `infra/resources.bicep` (sortie AZURE_FOUNDRY_PROJECT_ENDPOINT).
+    # Utilise uniquement par scripts/register_foundry_agents.py (docs/deployment.md #8.13) ;
+    # sans rapport avec l'execution des agents, qui passe toujours par AZURE_OPENAI_ENDPOINT.
+    azure_foundry_project_endpoint: str | None = Field(default=None, alias="AZURE_FOUNDRY_PROJECT_ENDPOINT")
+
     # --- Azure AI Search (base de connaissances RAG, mode deploye) ---
     azure_ai_search_endpoint: str | None = Field(default=None, alias="AZURE_AI_SEARCH_ENDPOINT")
     azure_ai_search_index: str = Field(default="incident-kb", alias="AZURE_AI_SEARCH_INDEX")

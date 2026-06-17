@@ -260,16 +260,17 @@ docs/                # documentation détaillée (architecture, fonctionnement, 
   (pipeline d'indexation), puis basculer `KB_MODE=azure_search` — l'index et
   le rôle `Search Index Data Reader` sont déjà provisionnés par `azd up`
   (DECISIONS.md #22).
-- Brancher la télémétrie OpenTelemetry du framework sur Application Insights
-  — `APPLICATIONINSIGHTS_CONNECTION_STRING` est déjà provisionné et injecté
-  par `infra/`, mais l'application ne l'exploite pas encore.
+- Connecter automatiquement Application Insights au projet Microsoft Foundry
+  via Bicep — aujourd'hui une étape manuelle ponctuelle dans le portail
+  (`docs/deployment.md` §8.12, DECISIONS.md #25).
 
 ## Aller plus loin
 
 - `docs/` — documentation détaillée : [`docs/architecture.md`](docs/architecture.md)
   (composants, contrats, conception), [`docs/how-it-works.md`](docs/how-it-works.md)
   (boucle de réflexion, HITL, flux SSE), [`docs/deployment.md`](docs/deployment.md)
-  (dev local, Docker, Azure/azd, configuration) et
+  (dev local, Docker, Azure/azd, configuration, observabilité §8.12, agents
+  visibles dans Microsoft Foundry §8.13) et
   [`docs/demo-guide.md`](docs/demo-guide.md) (déroulé de démo pas à pas, CLI et UI).
 - `SPEC.md` — contrats JSON détaillés, topologie d'orchestration, critères
   d'acceptation, architecture de déploiement Azure.

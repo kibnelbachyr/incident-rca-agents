@@ -89,9 +89,10 @@ Toute la configuration passe par l'environnement / `.env` (voir
 | `COSMOS_ENDPOINT` | Endpoint Cosmos DB. Absent → persistance locale (`output/runs/`) | _(aucun)_ |
 | `COSMOS_DATABASE` | Base Cosmos DB | `incidents` |
 | `COSMOS_CONTAINER` | Conteneur Cosmos DB (partition key `/id`) | `records` |
-| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Chaîne de connexion App Insights (provisionnée, pas encore exploitée par le code) | _(aucun)_ |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Chaîne de connexion App Insights — active l'instrumentation OTel (`src/observability.py`, §8.12). Absent → no-op (mode hors-ligne) | _(aucun)_ |
 | `CONFIDENCE_THRESHOLD` | Seuil de confiance de `RootCause` | `0.75` |
 | `MAX_REFLECTION_LOOPS` | Nombre max de reboucles `RootCause ↔ GatherEvidence` | `2` |
+| `AZURE_FOUNDRY_PROJECT_ENDPOINT` | Endpoint du projet Microsoft Foundry (`scripts/register_foundry_agents.py` uniquement, §8.13 — sans rapport avec l'exécution des agents) | _(aucun)_ |
 
 `GET /api/meta` expose à l'UI le sous-ensemble non sensible :
 `confidence_threshold`, `max_reflection_loops`, `kb_mode`,
@@ -387,6 +388,55 @@ et la porte HITL.
 > `ENABLE_SENSITIVE_DATA=true` (`.env`, dev uniquement) inclut les
 > prompts/réponses des agents dans les traces — ne jamais l'activer en
 > production (données potentiellement sensibles).
+
+### 8.13 Rendre les agents visibles dans le projet Microsoft Foundry
+
+§8.12 rend l'**exécution** (les traces) visible dans Foundry une fois Application
+Insights connecté. `scripts/register_foundry_agents.py` complète cela en
+enregistrant les **six agents** comme entrées dans l'onglet **Agents** du projet
+Foundry (`proj-${resourceToken}`), pour qu'ils apparaissent par leur nom même
+avant toute exécution.
+
+Les agents tournent **hors de Foundry**, directement contre Azure OpenAI
+(`AZURE_OPENAI_ENDPOINT`) via le Microsoft Agent Framework — il n'existe pas
+d'exécution « native Foundry » dans cette démo. L'enregistrement utilise donc
+`ExternalAgentDefinition` (`azure-ai-projects`) : *« Represents a third-party
+agent hosted outside Foundry »*. C'est un enregistrement **metadata-only** —
+aucune ressource de calcul n'est créée, seule l'entrée apparaît dans l'UI.
+
+> Fonctionnalité **preview** d'`azure-ai-projects` (nécessite
+> `AIProjectClient(..., allow_preview=True)`) : l'API peut changer avant la GA.
+
+**Prérequis :**
+
+1. `pip install -e ".[foundry]"` (groupe optionnel, séparé de `[dev]` — sans
+   rapport avec l'exécution/les tests de la démo elle-même).
+2. `AZURE_FOUNDRY_PROJECT_ENDPOINT` renseigné dans `.env` — déjà injecté après
+   `azd up` via `azd env get-values >> .env` (§8.7), ou récupérable dans le
+   portail Foundry (URL du projet).
+3. Authentification Azure : `az login` (`AZURE_AUTH_MODE=cli`, défaut local) ou
+   identité managée (`AZURE_AUTH_MODE=managed_identity`, déployé).
+
+**Exécution (une fois, après chaque changement de nom/description d'agent) :**
+
+```bash
+python -m scripts.register_foundry_agents
+```
+
+Le script enregistre chaque agent sous son nom exact (`LogAnalyzer`,
+`IncidentExtractor`, `KBSearch`, `RootCause`, `Remediation`, `Summary`) —
+identique à l'`id` désormais stable passé à `as_agent()`
+(`src/agents/clients.py`), ce qui garantit que les traces (§8.12, attribut de
+span `gen_ai.agent.id`) se rattachent au bon agent enregistré dans Foundry.
+
+Dans **https://ai.azure.com** → projet `proj-${resourceToken}` → **Agents**,
+les six agents apparaissent avec leur description ; **Observability > Traces**
+(§8.12) montre ensuite leurs exécutions une fois Application Insights connecté.
+
+> Aucun « workflow » séparé n'est enregistré : le graphe d'orchestration
+> (`WorkflowBuilder`, boucle de réflexion, porte HITL) est déjà entièrement
+> visible comme timeline dans **Observability > Traces** (§8.12) — il n'existe
+> pas de ressource « workflow » distincte côté Foundry à enregistrer.
 
 ## 9. Tests
 

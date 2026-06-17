@@ -389,3 +389,64 @@ de contexte + justification par decision, ordre chronologique.
     public, comme c'etait implicitement le cas avant ce changement (le
     compte avait reussi sans cette propriete lors de la Defaillance #3).
     Ajout non destructif, ne restreint aucun acces existant.
+
+29. **Rendre les six agents visibles dans l'UI du projet Microsoft Foundry ->
+    script `scripts/register_foundry_agents.py` utilisant
+    `ExternalAgentDefinition`, pas `PromptAgentDefinition`.** Les agents de
+    cette demo s'executent hors de Foundry, directement contre Azure OpenAI
+    via le Microsoft Agent Framework (`AzureOpenAIStructuredChatClient`,
+    `src/agents/clients.py`) - il n'y a pas d'orchestration "native Foundry"
+    a la place. `PromptAgentDefinition` suppose que Foundry heberge et execute
+    l'agent (prompt + modele geres cote Foundry) : inadapte ici, et aurait
+    introduit une deuxieme source de verite pour les instructions/le modele
+    de chaque agent. `ExternalAgentDefinition` (`azure-ai-projects`,
+    `discriminator="external"`) correspond exactement au cas : "Represents a
+    third-party agent hosted outside Foundry (...) Registration is
+    metadata-only" - confirme par introspection du SDK installe
+    (`inspect.getsource`), conformement a la consigne "ne pas deviner les
+    API". Aucune ressource de calcul n'est creee ; seule l'entree apparait
+    dans l'onglet Agents du projet.
+
+    Precondition corrigee au passage : `AgentTelemetryLayer` (package
+    `agent_framework`, instrumentation OTel) source l'attribut de span
+    `gen_ai.agent.id` depuis `Agent.id`, pas `Agent.name` - confirme par
+    lecture du source installe. Sans `id` explicite,
+    `BaseChatClient.as_agent(...)` genere un `uuid4()` aleatoire a chaque
+    redemarrage du processus, qui ne correspondrait alors jamais a l'`id`
+    statique enregistre dans Foundry (le nom de l'agent, ex. `RootCause`) -
+    les traces (#25, docs/deployment.md §8.12) ne se seraient jamais
+    rattachees a l'enregistrement External Agent. Fix : `id=agent_name`
+    ajoute a l'appel `as_agent(...)` dans
+    `AzureOpenAIStructuredChatClient.get_structured_response`
+    (`src/agents/clients.py`) - meme valeur que `agent_name` deja utilise
+    comme `name=`, donc aucun changement de comportement visible ailleurs.
+
+    L'enregistrement (`AIProjectClient(..., allow_preview=True)`,
+    `agents.create_version(agent_name=..., definition=ExternalAgentDefinition())`)
+    est une fonctionnalite **preview** d'`azure-ai-projects` >=2.2.0 - a
+    documenter comme telle (docs/deployment.md §8.13), l'API pouvant changer
+    avant la GA. Dependance ajoutee dans un groupe optionnel distinct
+    `[foundry]` (`pyproject.toml`), separe de `[dev]` : sans rapport avec
+    l'execution ou les tests de la demo elle-meme, seulement avec ce script
+    d'enregistrement ponctuel.
+
+    Endpoint du projet (`AZURE_FOUNDRY_PROJECT_ENDPOINT`, nouveau) construit
+    par concatenation de chaines dans `infra/resources.bicep`
+    (`'https://${openAi.name}.services.ai.azure.com/api/projects/${foundryProject.name}'`,
+    forme documentee par `AIProjectClient`) plutot que lu sur une propriete
+    de ressource : confirme via la doc Microsoft Learn que
+    `Microsoft.CognitiveServices/accounts/projects`
+    (`ProjectProperties`) n'expose que `description`/`displayName`, aucune
+    propriete d'endpoint. `openAi.name` == `properties.customSubDomainName`
+    (les deux fixes a `aoai-${resourceToken}` dans la ressource existante,
+    #21) : pas de lookup manuel necessaire, recupere comme les autres
+    sorties Bicep via `azd env get-values >> .env` (deja le flux dev-local
+    documente, §8.7).
+
+    Pas d'enregistrement separe pour le "workflow" (`WorkflowBuilder`, la
+    boucle de reflexion, la porte HITL) : Foundry n'a pas de ressource
+    "workflow" a enregistrer independamment des agents qui le composent, et
+    la timeline d'execution complete (executors, boucle, HITL) est deja
+    entierement visible via les traces OTel existantes (#25,
+    docs/deployment.md §8.12) une fois Application Insights connecte -
+    aucun gap a combler ici.

@@ -429,6 +429,11 @@ output AZURE_OPENAI_API_VERSION string = openAiApiVersion
 
 output AZURE_FOUNDRY_PROJECT_NAME string = foundryProject.name
 output AZURE_FOUNDRY_PROJECT_ID string = foundryProject.id
+// Forme documentee par `AIProjectClient` (azure-ai-projects) :
+// https://{ai-services-account-name}.services.ai.azure.com/api/projects/{project-name}
+// openAi.name == properties.customSubDomainName ci-dessus (les deux sont fixes a
+// 'aoai-${resourceToken}' dans cette ressource) : pas de lookup manuel necessaire.
+output AZURE_FOUNDRY_PROJECT_ENDPOINT string = 'https://${openAi.name}.services.ai.azure.com/api/projects/${foundryProject.name}'
 
 output AZURE_AI_SEARCH_ENDPOINT string = 'https://${search.name}.search.windows.net'
 output AZURE_AI_SEARCH_INDEX string = 'incident-kb'

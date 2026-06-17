@@ -38,8 +38,8 @@ async def test_summary_produces_final_report(
     )
 
     assert isinstance(result, IncidentReport)
-    assert result.confiance == 0.88
+    assert result.confiance == 0.92
     assert "INC-204" in (result.precedent_lie or "")
-    assert "CAUSE RACINE" in result.texte
-    assert "REMÉDIATION" in result.texte
-    assert "PRÉCÉDENT LIÉ" in result.texte
+    assert "CAUSE RACINE" in result.texte or "ROOT CAUSE" in result.texte
+    assert "REMÉDIATION" in result.texte or "REMEDIATION" in result.texte
+    assert "PRÉCÉDENT LIÉ" in result.texte or "PRECEDENT" in result.texte

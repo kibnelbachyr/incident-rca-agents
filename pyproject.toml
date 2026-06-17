@@ -24,6 +24,13 @@ dev = [
   "pytest-asyncio>=0.24",
   "httpx>=0.27",
 ]
+# scripts/register_foundry_agents.py uniquement (enregistrement External Agent,
+# docs/deployment.md #8.13) ; sans rapport avec l'execution des agents.
+# >=2.2.0 : version dans laquelle `ExternalAgentDefinition` et
+# `AIProjectClient(..., allow_preview=...)` ont ete verifies presents.
+foundry = [
+  "azure-ai-projects>=2.2.0",
+]
 
 [build-system]
 requires = ["setuptools>=68", "wheel"]
