@@ -138,7 +138,7 @@ class RemediationApprovalRequest(BaseModel):
     incident: Incident
     root_cause: RootCauseHypothesis
     kb_matches: KBMatches
-    message: str = "Valider le passage a la remediation ?"
+    message: str = "Approve proceeding to remediation?"
 
 
 # ---------------------------------------------------------------------------

@@ -143,7 +143,7 @@ async def submit_approval(
     runs = _runs(request)
     state = runs.get(run_id)
     if state is None or state.pending_request_id is None:
-        raise HTTPException(status_code=404, detail="Execution inconnue ou pas en attente de validation")
+        raise HTTPException(status_code=404, detail="Run not found or not awaiting approval")
 
     request_id = state.pending_request_id
 

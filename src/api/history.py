@@ -27,5 +27,5 @@ async def get_history_record(
 ) -> IncidentRecord:
     record = await store.get_record(run_id)
     if record is None:
-        raise HTTPException(status_code=404, detail="Execution introuvable")
+        raise HTTPException(status_code=404, detail="Run not found")
     return record

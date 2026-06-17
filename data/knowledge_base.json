@@ -2,57 +2,57 @@
   "incidents": [
     {
       "id": "INC-204",
-      "titre": "Épuisement du pool de connexions après changement de configuration",
+      "titre": "Connection pool exhaustion after a configuration change",
       "services": ["payment-api", "db-pool"],
       "symptomes": [
         "connection acquisition timeout",
         "pool usage 100%",
-        "échec de persistance des transactions",
-        "pic du taux d'erreur peu après un déploiement"
+        "transaction persistence failures",
+        "error rate spike shortly after a deployment"
       ],
-      "cause_racine": "Un déploiement a réduit db.max_pool_size, rendant le pool insuffisant sous charge nominale.",
-      "resolution": "Rollback du déploiement et restauration de la taille du pool à sa valeur précédente. Ajout d'une alerte sur l'utilisation du pool.",
+      "cause_racine": "A deployment reduced db.max_pool_size, leaving the pool undersized for nominal load.",
+      "resolution": "Rolled back the deployment and restored the pool size to its previous value. Added an alert on pool utilisation.",
       "tags": ["db", "pool", "config-change", "deploy", "saturation"]
     },
     {
       "id": "INC-187",
-      "titre": "Pic de latence du processeur de paiement externe (Stripe)",
+      "titre": "Latency spike on the external payment processor (Stripe)",
       "services": ["payment-api", "processor"],
       "symptomes": [
-        "latence d'appel Stripe au-dessus du p95 de référence",
-        "timeouts côté processeur",
-        "hausse du taux d'erreur corrélée à la latence externe"
+        "Stripe call latency above the reference p95",
+        "processor-side timeouts",
+        "error rate increase correlated with external latency"
       ],
-      "cause_racine": "Dégradation transitoire côté fournisseur externe, sans changement interne.",
-      "resolution": "Mise en place d'un circuit breaker et de retries avec backoff sur les appels au processeur ; bascule vers un processeur secondaire si disponible.",
+      "cause_racine": "Transient degradation on the external provider's side, with no internal change.",
+      "resolution": "Deployed a circuit breaker with backoff retries on processor calls; fail over to a secondary processor when available.",
       "tags": ["processor", "stripe", "latency", "external", "circuit-breaker"]
     },
     {
       "id": "INC-241",
-      "titre": "Vérification de signature webhook cassée par normalisation des en-têtes HTTP",
+      "titre": "Webhook signature verification broken by HTTP header normalisation",
       "services": ["payment-api", "webhook-gateway"],
       "symptomes": [
-        "en-tête de signature absent côté application",
-        "rejet HTTP 401 silencieux sur les callbacks entrants",
-        "aucune alerte immédiate, accumulation progressive d'un backlog",
-        "lookup d'en-tête sensible à la casse après migration de SDK"
+        "signature header missing on the application side",
+        "silent HTTP 401 rejection on inbound callbacks",
+        "no immediate alert, backlog accumulates gradually",
+        "case-sensitive header lookup after an SDK migration"
       ],
-      "cause_racine": "Le nouveau code de vérification lit l'en-tête HTTP avec une casse exacte, alors que la passerelle/CDN normalise tous les en-têtes en minuscules : la vérification échoue systématiquement après le déploiement.",
-      "resolution": "Bascule vers une lecture d'en-tête insensible à la casse (header.get() au lieu d'un accès dict exact) et rejeu des évènements en attente depuis la file de retry du fournisseur.",
+      "cause_racine": "The new verification code reads the HTTP header with exact case, while the gateway/CDN normalises all headers to lowercase: verification fails systematically after the deployment.",
+      "resolution": "Switched to a case-insensitive header lookup (header.get() instead of an exact dict access) and replayed the pending events from the provider's retry queue.",
       "tags": ["webhook", "signature", "header", "case-sensitivity", "integration", "silent-failure", "gateway"]
     },
     {
       "id": "INC-223",
-      "titre": "Indisponibilité partielle de l'API PayPal (incident côté fournisseur)",
+      "titre": "Partial PayPal API outage (provider-side incident)",
       "services": ["payment-api", "paypal-integration", "paypal-webhook"],
       "symptomes": [
-        "timeout sur les appels API PayPal, retard de livraison webhook",
-        "commandes bloquées en attente de confirmation pendant l'incident fournisseur",
-        "hausse du taux d'échec corrélée à la disponibilité de PayPal",
-        "incident confirmé publiquement sur status.paypal.com"
+        "timeouts on PayPal API calls, delayed webhook delivery",
+        "orders stuck awaiting confirmation during the provider incident",
+        "failure rate increase correlated with PayPal availability",
+        "incident publicly confirmed on status.paypal.com"
       ],
-      "cause_racine": "Dégradation transitoire côté fournisseur de paiement externe (PayPal), sans changement interne déployé.",
-      "resolution": "Attente de la résolution côté fournisseur, bascule temporaire des nouvelles transactions critiques vers un PSP secondaire, suivi via la page de statut publique.",
+      "cause_racine": "Transient degradation on the external payment provider's side (PayPal), with no internal change deployed.",
+      "resolution": "Waited for the provider-side resolution, temporarily routed new critical transactions to a secondary PSP, tracked via the public status page.",
       "tags": ["paypal", "processor", "external", "outage", "availability", "webhook", "delivery"]
     }
   ]

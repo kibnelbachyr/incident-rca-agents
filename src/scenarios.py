@@ -66,4 +66,4 @@ def get_scenario(scenario_id: str | None) -> ScenarioDef:
     try:
         return SCENARIOS[scenario_id]
     except KeyError as exc:
-        raise KeyError(f"Scenario inconnu : '{scenario_id}'") from exc
+        raise KeyError(f"Unknown scenario: '{scenario_id}'") from exc
