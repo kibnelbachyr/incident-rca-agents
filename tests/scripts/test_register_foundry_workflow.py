@@ -41,7 +41,9 @@ def test_load_workflow_yaml_is_well_formed_csdl() -> None:
     action_ids = {action["id"] for action in definition["trigger"]["actions"]}
     assert action_ids == {
         "capture_raw_logs",
-        "init_loop_state",
+        "init_loop_count",
+        "init_confidence_threshold",
+        "init_max_reflection_loops",
         "invoke_log_analyzer",
         "invoke_incident_extractor",
         "invoke_kb_search",

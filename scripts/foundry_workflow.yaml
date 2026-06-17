@@ -48,13 +48,28 @@ trigger:
     # CONFIDENCE_THRESHOLD et MAX_REFLECTION_LOOPS sont des constantes
     # "non negociables" (CLAUDE.md) : valeurs par defaut recopiees ici
     # (0.75 / 2) car ce workflow autonome n'a pas acces a Settings/.env.
-    - kind: SetMultipleVariables
-      id: init_loop_state
-      displayName: Initialize bounded reflection-loop state
-      variables:
-        Local.loopCount: 0
-        Local.confidenceThreshold: 0.75
-        Local.maxReflectionLoops: 2
+    # Trois SetVariable plutot qu'un seul SetMultipleVariables : ce dernier
+    # suit pourtant exactement la forme documentee (carte `variables:`) mais
+    # l'API Foundry (preview) le rejette en pratique avec "Missing required
+    # properties" (DECISIONS.md #30 addendum) - SetVariable evite ce risque
+    # de divergence doc/API en n'utilisant que la forme la plus simple.
+    - kind: SetVariable
+      id: init_loop_count
+      displayName: Initialize loop_count
+      variable: Local.loopCount
+      value: 0
+
+    - kind: SetVariable
+      id: init_confidence_threshold
+      displayName: Initialize confidence_threshold
+      variable: Local.confidenceThreshold
+      value: 0.75
+
+    - kind: SetVariable
+      id: init_max_reflection_loops
+      displayName: Initialize max_reflection_loops
+      variable: Local.maxReflectionLoops
+      value: 2
 
     # --- Agent 1/6 : LogAnalyzer ---------------------------------------------
     - kind: InvokeAzureAgent

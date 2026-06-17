@@ -499,3 +499,21 @@ de contexte + justification par decision, ordre chronologique.
     l'execution reelle reste 100% `src/orchestrator/graph.py` + `executors.py`,
     observable via les traces OTel (#25, docs/deployment.md §8.12). A
     resynchroniser a la main si `graph.py` change.
+
+    Addendum (premiere execution reelle du script contre un projet Foundry) :
+    l'action `SetMultipleVariables` (utilisee pour initialiser l'etat de la
+    boucle) suit pourtant exactement la forme documentee (`variables:` =
+    carte chemin->valeur, seule propriete requise), mais l'API Foundry
+    (preview) la rejette quand meme a l'enregistrement avec
+    `invalid_payload: Missing required properties for element ...
+    (SetMultipleVariables)`. La doc officielle n'est donc pas fiable a 100%
+    pour cette fonctionnalite preview. Fix : remplace par trois actions
+    `SetVariable` distinctes (une par variable), forme la plus simple et deja
+    prouvee fonctionnelle ailleurs dans le meme fichier, plutot que de deviner
+    une autre forme pour `SetMultipleVariables`. Implique qu'un residu de
+    risque subsiste sur les autres kinds d'action utilises ici (`If`,
+    `GotoAction`, `Question`, `InvokeAzureAgent`, `SendActivity`,
+    `EndWorkflow`) : leur forme suit la doc et n'a pas (encore) declenche
+    d'erreur a l'enregistrement, mais seul un appel reel contre un projet
+    Foundry fait foi pour une fonctionnalite preview - a corriger au cas par
+    cas si une nouvelle erreur `invalid_payload` apparait.
