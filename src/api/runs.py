@@ -43,14 +43,13 @@ from pydantic import BaseModel
 
 from src.api.dependencies import persistence_dependency, settings_dependency
 from src.api.sse import sse_event
-from src.config import REPO_ROOT, Settings
+from src.config import Settings
 from src.models import SharedContext
 from src.orchestrator import build_workflow
+from src.scenarios import get_scenario
 from src.tools.persistence import IncidentRecord, PersistenceStore
 
 router = APIRouter(tags=["runs"])
-
-DEFAULT_LOG_PATH = REPO_ROOT / "data" / "payment-incident.log"
 
 
 @dataclass
@@ -60,6 +59,12 @@ class RunState:
     workflow: Workflow
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     pending_request_id: str | None = None
+
+
+class StartRunBody(BaseModel):
+    """Corps optionnel de `POST /api/runs`. Absence de corps = scenario par defaut."""
+
+    scenario: str | None = None
 
 
 class ApprovalBody(BaseModel):
@@ -80,14 +85,24 @@ def _step_payload(event: WorkflowEvent[Any]) -> dict[str, Any]:
 @router.post("/runs")
 async def start_run(
     request: Request,
+    body: StartRunBody | None = None,
     settings: Settings = Depends(settings_dependency),
 ) -> StreamingResponse:
-    """Demarre une nouvelle execution sur `data/payment-incident.log` (SSE)."""
+    """Demarre une nouvelle execution sur le scenario demande (SSE).
+
+    `body.scenario` est resolu via `src.scenarios.get_scenario` ; absence de
+    corps ou de champ `scenario` -> scenario par defaut (`db_pool`).
+    """
+
+    try:
+        scenario_def = get_scenario(body.scenario if body else None)
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     runs = _runs(request)
     run_id = uuid.uuid4().hex
-    workflow = build_workflow(settings)
-    raw_logs = DEFAULT_LOG_PATH.read_text(encoding="utf-8")
+    workflow = build_workflow(settings, scenario=scenario_def.id)
+    raw_logs = scenario_def.log_path.read_text(encoding="utf-8")
     state = RunState(workflow=workflow)
     runs[run_id] = state
 

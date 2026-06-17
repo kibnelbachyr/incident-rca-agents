@@ -1,0 +1,36 @@
+2025-11-10 09:10:02 INFO  [ci-cd]         build payment-api v3.1.0 succeeded (commit 7c2e9a1)
+2025-11-10 09:14:18 INFO  [deploy]        payment-api v3.1.0 released to prod (rolling, 8 pods)
+2025-11-10 09:14:19 INFO  [deploy]        changelog: migrate paypal-checkout-sdk 1.9 -> 2.0; rewrite webhook signature verification
+2025-11-10 09:15:40 INFO  [payment-api]   healthcheck OK on all pods
+2025-11-10 09:20:11 INFO  [payment-api]   checkout success rate nominal: 99.4%
+2025-11-10 09:24:03 ERROR [paypal-webhook] signature verification failed: header 'PAYPAL-TRANSMISSION-SIG' not found - rejecting (401)
+2025-11-10 09:24:03 INFO  [paypal-webhook] event PAYMENT.CAPTURE.COMPLETED txn=8GH40522 discarded (invalid signature)
+2025-11-10 09:31:55 ERROR [paypal-webhook] signature verification failed: header 'PAYPAL-TRANSMISSION-SIG' not found - rejecting (401)
+2025-11-10 11:02:14 INFO  [order-service]  order ORD-55012 awaiting webhook confirmation (capture succeeded, IPN pending)
+2025-11-10 14:47:33 INFO  [paypal]         PayPal webhook redelivery attempt 1/8 for txn=8GH40522
+2025-11-11 02:15:09 ERROR [paypal-webhook] signature verification failed: header 'PAYPAL-TRANSMISSION-SIG' not found - rejecting (401)
+2025-11-11 08:00:00 INFO  [monitoring]     daily checkout success rate report: 99.3% (nominal) - no alert
+2025-11-11 16:20:44 INFO  [order-service]  order backlog: 18 orders in 'pending_confirmation' > 6h
+2025-11-12 03:40:12 INFO  [paypal]         PayPal webhook redelivery attempt 4/8 for txn=8GH40522
+2025-11-12 09:00:00 INFO  [monitoring]     daily checkout success rate report: 99.5% (nominal) - no alert
+2025-11-12 19:05:27 WARN  [order-service]  order backlog: 41 orders in 'pending_confirmation' > 6h
+2025-11-13 08:00:00 INFO  [monitoring]     daily checkout success rate report: 99.2% (nominal) - no alert
+2025-11-13 10:12:51 INFO  [support]        ticket #4471: customer reports "paid but order shows pending" (txn=8GH40522)
+2025-11-13 15:33:08 INFO  [support]        ticket #4483: customer reports "paid but order shows pending"
+2025-11-13 18:44:02 WARN  [order-service]  order backlog: 67 orders in 'pending_confirmation' > 6h
+2025-11-14 09:18:36 INFO  [support]        ticket #4502: third similar report this week - escalated to payment-api on-call
+2025-11-14 10:05:14 INFO  [oncall]         investigating: hypotheses = (a) PayPal-side outage/API change (b) payment-api regression
+2025-11-14 10:22:47 INFO  [oncall]         checking status.paypal.com - no incidents reported in the last 7 days
+2025-11-14 11:40:19 WARN  [paypal]         webhook retry exhaustion: txn=8GH40522 reached max attempts (8/8) - delivery permanently failed
+2025-11-14 13:15:02 WARN  [order-service]  order backlog: 94 orders in 'pending_confirmation' > 6h (3.2x normal baseline of 29)
+2025-11-15 08:00:00 ERROR [monitoring]     new alert rule triggered: pending_confirmation backlog > 80 for 24h (SEV-2)
+2025-11-15 08:14:55 INFO  [oncall]         PagerDuty alert fired: payment-api order confirmation backlog (SEV-2)
+2025-11-15 09:02:33 INFO  [oncall]         gateway access log sample: header received as 'paypal-transmission-sig' (lowercase)
+2025-11-15 09:18:47 INFO  [oncall]         app code review: verification reads request.headers['PAYPAL-TRANSMISSION-SIG'] (exact-case lookup)
+2025-11-15 09:40:10 INFO  [oncall]         confirmed: API gateway (CDN edge) normalises all headers to lowercase before forwarding - case-sensitive lookup always misses
+2025-11-15 10:05:29 INFO  [oncall]         diff review: v3.1.0 webhook handler rewrite replaced case-insensitive header.get() with case-sensitive dict access
+2025-11-15 10:30:00 INFO  [oncall]         decision: hotfix v3.1.1 - case-insensitive header lookup + manual reconciliation of backlog
+2025-11-15 11:05:18 INFO  [deploy]         hotfix payment-api v3.1.1 released to prod (case-insensitive webhook signature header lookup)
+2025-11-15 11:08:44 INFO  [paypal-webhook] signature verification succeeded - event PAYMENT.CAPTURE.COMPLETED accepted
+2025-11-15 11:30:02 INFO  [order-service]  reconciliation job started: replaying 112 backlogged PayPal webhook events
+2025-11-15 12:15:37 INFO  [order-service]  reconciliation complete: 112/112 orders moved to 'completed'

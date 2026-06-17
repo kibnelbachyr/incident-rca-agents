@@ -27,7 +27,7 @@ from pathlib import Path
 
 from agent_framework import WorkflowEvent
 
-from src.config import REPO_ROOT, Settings, get_settings
+from src.config import Settings, get_settings
 from src.models import (
     Incident,
     IncidentReport,
@@ -40,6 +40,7 @@ from src.models import (
 )
 from src.observability import configure_observability
 from src.orchestrator import build_workflow
+from src.scenarios import DEFAULT_SCENARIO, SCENARIOS, get_scenario
 
 SEPARATOR = "=" * 78
 
@@ -188,13 +189,14 @@ def _ask_approval(request: RemediationApprovalRequest) -> bool:
     return answer.strip().lower() in {"o", "oui", "y", "yes"}
 
 
-async def run_demo(log_path: Path) -> None:
+async def run_demo(log_path: Path, *, scenario: str = DEFAULT_SCENARIO) -> None:
     settings = get_settings()
     configure_observability(settings)
-    workflow = build_workflow(settings)
+    workflow = build_workflow(settings, scenario=scenario)
     raw_logs = log_path.read_text(encoding="utf-8")
 
     _print_header("DEMO - Diagnostic multi-agents d'un incident de paiement")
+    print(f"Scenario               : {scenario}")
     print(f"Logs source           : {log_path}")
     print(f"Seuil de confiance    : {settings.confidence_threshold}")
     print(f"Boucles de reflexion max : {settings.max_reflection_loops}")
@@ -234,17 +236,25 @@ async def run_demo(log_path: Path) -> None:
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Demo d'analyse multi-agents d'un incident de paiement.")
     parser.add_argument(
+        "--scenario",
+        choices=sorted(SCENARIOS),
+        default=DEFAULT_SCENARIO,
+        help="Scenario de demo a executer (defaut : %(default)s).",
+    )
+    parser.add_argument(
         "--logs",
         type=Path,
-        default=REPO_ROOT / "data" / "payment-incident.log",
-        help="Chemin du fichier de logs a injecter (defaut : data/payment-incident.log).",
+        default=None,
+        help="Chemin du fichier de logs a injecter (defaut : logs du scenario choisi via --scenario).",
     )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = _parse_args(argv)
-    asyncio.run(run_demo(args.logs))
+    scenario_def = get_scenario(args.scenario)
+    log_path = args.logs if args.logs is not None else scenario_def.log_path
+    asyncio.run(run_demo(log_path, scenario=scenario_def.id))
     return 0
 
 

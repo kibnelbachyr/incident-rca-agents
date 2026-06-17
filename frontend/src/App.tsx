@@ -1,13 +1,19 @@
 import { useEffect, useState } from "react";
 
-import { fetchMeta, startRun, submitApproval } from "./api";
+import { fetchMeta, fetchScenarios, startRun, submitApproval } from "./api";
 import ActivityFeed, { type FeedEntry } from "./components/ActivityFeed";
 import DetailPanel from "./components/DetailPanel";
 import Footer from "./components/Footer";
 import Header, { type View } from "./components/Header";
 import History from "./components/History";
 import PipelineHUD, { type Phase } from "./components/PipelineHUD";
-import type { ExecutorId, MetaResponse, RemediationApprovalRequest, StepPayload } from "./types";
+import type {
+  ExecutorId,
+  MetaResponse,
+  RemediationApprovalRequest,
+  ScenarioInfo,
+  StepPayload,
+} from "./types";
 
 // --------------------------------------------------------------------------
 // Step code / label maps (shared with ActivityFeed entry construction)
@@ -116,12 +122,22 @@ export default function App() {
   const [finalApproved, setFinalApproved] = useState<boolean | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [feedEntries, setFeedEntries] = useState<FeedEntry[]>([]);
+  const [scenarios, setScenarios] = useState<ScenarioInfo[]>([]);
+  const [scenarioId, setScenarioId] = useState<string>("");
 
   useEffect(() => {
     fetchMeta()
       .then(setMeta)
       .catch(() => undefined);
+    fetchScenarios()
+      .then((data) => {
+        setScenarios(data.scenarios);
+        setScenarioId(data.default);
+      })
+      .catch(() => undefined);
   }, []);
+
+  const selectedScenario = scenarios.find((s) => s.id === scenarioId) ?? null;
 
   async function handleStart() {
     setPhase("running");
@@ -134,9 +150,10 @@ export default function App() {
     setFeedEntries([]);
 
     const threshold = meta?.confidence_threshold ?? 0.75;
+    const scenarioLabel = selectedScenario?.label ?? scenarioId;
 
     try {
-      await startRun({
+      await startRun(scenarioId, {
         onRunStarted: (data) => {
           setRunId(data.run_id);
           setFeedEntries([
@@ -144,7 +161,7 @@ export default function App() {
               id: "start",
               type: "start",
               label: `RUN ${data.run_id.slice(0, 8).toUpperCase()}`,
-              detail: "Orchestration started — analyzing payment-incident.log",
+              detail: `Orchestration started — scenario: ${scenarioLabel}`,
             },
           ]);
         },
@@ -300,10 +317,27 @@ export default function App() {
           />
 
           <div className="main__controls">
-            <button className="button button--primary" onClick={handleStart} disabled={isBusy}>
-              {phase === "idle" ? "Run Diagnostic" : "Re-run on Demo Logs"}
+            {scenarios.length > 0 && (
+              <div className="scenario-select" role="group" aria-label="Scenario">
+                <span className="scenario-select__label">Scenario</span>
+                {scenarios.map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    className={s.id === scenarioId ? "tab tab--active" : "tab"}
+                    onClick={() => setScenarioId(s.id)}
+                    disabled={isBusy}
+                    title={s.description}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <button className="button button--primary" onClick={handleStart} disabled={isBusy || !scenarioId}>
+              {phase === "idle" ? "Run Diagnostic" : "Re-run Diagnostic"}
             </button>
-            <StatusLine phase={phase} finalApproved={finalApproved} />
+            <StatusLine phase={phase} finalApproved={finalApproved} scenarioLabel={selectedScenario?.label ?? null} />
             {errorMessage && <p className="error-banner">{errorMessage}</p>}
           </div>
         </main>
@@ -314,10 +348,18 @@ export default function App() {
   );
 }
 
-function StatusLine({ phase, finalApproved }: { phase: Phase; finalApproved: boolean | null }) {
+function StatusLine({
+  phase,
+  finalApproved,
+  scenarioLabel,
+}: {
+  phase: Phase;
+  finalApproved: boolean | null;
+  scenarioLabel: string | null;
+}) {
   switch (phase) {
     case "idle":
-      return <p className="status">Ready — will analyze data/payment-incident.log.</p>;
+      return <p className="status">Ready — will run scenario: {scenarioLabel ?? "…"}.</p>;
     case "running":
       return <p className="status status--active">Orchestration in progress…</p>;
     case "awaiting_approval":

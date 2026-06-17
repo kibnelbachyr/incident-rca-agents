@@ -102,6 +102,17 @@ export interface MetaResponse {
   cosmos_enabled: boolean;
 }
 
+export interface ScenarioInfo {
+  id: string;
+  label: string;
+  description: string;
+}
+
+export interface ScenariosResponse {
+  scenarios: ScenarioInfo[];
+  default: string;
+}
+
 export interface IncidentRecordSummary {
   id: string;
   started_at: string;

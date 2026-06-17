@@ -45,7 +45,7 @@ from src.orchestrator.executors import (
 from src.tools.knowledge_base import get_knowledge_base
 
 
-def build_workflow(settings: Settings) -> Workflow:
+def build_workflow(settings: Settings, *, scenario: str = "db_pool") -> Workflow:
     """Construit le workflow complet a partir des parametres d'orchestration.
 
     Modele "leger" pour les taches mecaniques (LogAnalyzer, IncidentExtractor,
@@ -53,10 +53,13 @@ def build_workflow(settings: Settings) -> Workflow:
     SPEC.md section 2). `LogAnalyzer` et `KBSearch` sont partages entre leur
     noeud de pipeline et `GatherEvidenceExecutor` pour que le compteur d'appels
     du `StubChatClient` (1er passage / 2e passage) soit coherent en mode hors-ligne.
+
+    `scenario` selectionne le jeu de reponses canon rejoue par `StubChatClient`
+    en mode hors-ligne (cf. `src.scenarios`) ; sans effet en mode Azure OpenAI reel.
     """
 
-    light_client = get_chat_client(settings, light=True)
-    strong_client = get_chat_client(settings, light=False)
+    light_client = get_chat_client(settings, light=True, scenario=scenario)
+    strong_client = get_chat_client(settings, light=False, scenario=scenario)
     knowledge_base = get_knowledge_base(settings)
 
     log_analyzer_agent = LogAnalyzerAgent(light_client)

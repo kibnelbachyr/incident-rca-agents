@@ -26,6 +26,34 @@
       "cause_racine": "Dégradation transitoire côté fournisseur externe, sans changement interne.",
       "resolution": "Mise en place d'un circuit breaker et de retries avec backoff sur les appels au processeur ; bascule vers un processeur secondaire si disponible.",
       "tags": ["processor", "stripe", "latency", "external", "circuit-breaker"]
+    },
+    {
+      "id": "INC-241",
+      "titre": "Vérification de signature webhook cassée par normalisation des en-têtes HTTP",
+      "services": ["payment-api", "webhook-gateway"],
+      "symptomes": [
+        "en-tête de signature absent côté application",
+        "rejet HTTP 401 silencieux sur les callbacks entrants",
+        "aucune alerte immédiate, accumulation progressive d'un backlog",
+        "lookup d'en-tête sensible à la casse après migration de SDK"
+      ],
+      "cause_racine": "Le nouveau code de vérification lit l'en-tête HTTP avec une casse exacte, alors que la passerelle/CDN normalise tous les en-têtes en minuscules : la vérification échoue systématiquement après le déploiement.",
+      "resolution": "Bascule vers une lecture d'en-tête insensible à la casse (header.get() au lieu d'un accès dict exact) et rejeu des évènements en attente depuis la file de retry du fournisseur.",
+      "tags": ["webhook", "signature", "header", "case-sensitivity", "integration", "silent-failure", "gateway"]
+    },
+    {
+      "id": "INC-223",
+      "titre": "Indisponibilité partielle de l'API PayPal (incident côté fournisseur)",
+      "services": ["payment-api", "paypal-integration", "paypal-webhook"],
+      "symptomes": [
+        "timeout sur les appels API PayPal, retard de livraison webhook",
+        "commandes bloquées en attente de confirmation pendant l'incident fournisseur",
+        "hausse du taux d'échec corrélée à la disponibilité de PayPal",
+        "incident confirmé publiquement sur status.paypal.com"
+      ],
+      "cause_racine": "Dégradation transitoire côté fournisseur de paiement externe (PayPal), sans changement interne déployé.",
+      "resolution": "Attente de la résolution côté fournisseur, bascule temporaire des nouvelles transactions critiques vers un PSP secondaire, suivi via la page de statut publique.",
+      "tags": ["paypal", "processor", "external", "outage", "availability", "webhook", "delivery"]
     }
   ]
 }

@@ -131,3 +131,55 @@ def test_meta_and_health(client: TestClient) -> None:
 def test_history_record_not_found(client: TestClient) -> None:
     response = client.get("/api/history/does-not-exist")
     assert response.status_code == 404
+
+
+def test_get_scenarios_lists_both_demo_scenarios(client: TestClient) -> None:
+    response = client.get("/api/scenarios")
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body["default"] == "db_pool"
+    ids = {s["id"] for s in body["scenarios"]}
+    assert ids == {"db_pool", "paypal_integration"}
+    for scenario in body["scenarios"]:
+        assert scenario["label"]
+        assert scenario["description"]
+
+
+def test_start_run_with_unknown_scenario_returns_400(client: TestClient) -> None:
+    response = client.post("/api/runs", json={"scenario": "does-not-exist"})
+    assert response.status_code == 400
+
+
+def test_run_paypal_scenario_streams_reflection_loop_and_persists_report(client: TestClient) -> None:
+    with client.stream("POST", "/api/runs", json={"scenario": "paypal_integration"}) as response:
+        assert response.status_code == 200
+        events = _read_sse(response)
+
+    assert events[0][0] == "run_started"
+    run_id = events[0][1]["run_id"]
+
+    step_executors = [data["executor_id"] for name, data in events if name == "step"]
+    assert step_executors.count("root_cause") == 2
+    assert "gather_evidence" in step_executors
+
+    approval_events = [data for name, data in events if name == "approval_required"]
+    assert len(approval_events) == 1
+    request = approval_events[0]["request"]
+    assert request["incident"]["severite"] == "SEV-2"
+    assert request["root_cause"]["confiance"] >= 0.75
+    assert request["root_cause"]["preuves_manquantes"] == []
+
+    with client.stream("POST", f"/api/runs/{run_id}/approval", json={"approved": True}) as response:
+        assert response.status_code == 200
+        events2 = _read_sse(response)
+
+    step_executors_2 = [data["executor_id"] for name, data in events2 if name == "step"]
+    assert step_executors_2 == ["remediation", "summary"]
+
+    done_events = [data for name, data in events2 if name == "done"]
+    assert done_events == [{"approved": True}]
+
+    record = client.get(f"/api/history/{run_id}").json()
+    assert record["context"]["report"]["confiance"] == pytest.approx(0.93)
+    assert "INC-241" in record["context"]["report"]["precedent_lie"]

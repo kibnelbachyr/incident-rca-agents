@@ -8,6 +8,7 @@ import type {
   IncidentRecordSummary,
   MetaResponse,
   RemediationApprovalRequest,
+  ScenariosResponse,
   StepPayload,
 } from "./types";
 
@@ -99,9 +100,9 @@ function dispatch(rawEvent: string, handlers: StreamHandlers): void {
   }
 }
 
-/** `POST /api/runs` : demarre une nouvelle execution sur les logs de demo. */
-export function startRun(handlers: StreamHandlers): Promise<void> {
-  return streamPost("/api/runs", {}, handlers);
+/** `POST /api/runs` : demarre une nouvelle execution sur le scenario choisi. */
+export function startRun(scenario: string, handlers: StreamHandlers): Promise<void> {
+  return streamPost("/api/runs", { scenario }, handlers);
 }
 
 /** `POST /api/runs/{runId}/approval` : reprend l'execution apres decision humaine. */
@@ -113,6 +114,12 @@ export async function fetchMeta(): Promise<MetaResponse> {
   const response = await fetch("/api/meta");
   if (!response.ok) throw new Error("Configuration unavailable");
   return (await response.json()) as MetaResponse;
+}
+
+export async function fetchScenarios(): Promise<ScenariosResponse> {
+  const response = await fetch("/api/scenarios");
+  if (!response.ok) throw new Error("Scenarios unavailable");
+  return (await response.json()) as ScenariosResponse;
 }
 
 export async function fetchHistory(limit = 20): Promise<IncidentRecordSummary[]> {
