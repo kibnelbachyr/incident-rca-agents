@@ -450,3 +450,52 @@ de contexte + justification par decision, ordre chronologique.
     entierement visible via les traces OTel existantes (#25,
     docs/deployment.md §8.12) une fois Application Insights connecte -
     aucun gap a combler ici.
+
+30. **Correction de #29 : Foundry a bien une ressource "workflow"
+    enregistrable (`WorkflowAgentDefinition`) -> script
+    `scripts/register_foundry_workflow.py` + CSDL ecrit a la main
+    `scripts/foundry_workflow.yaml`.** Le dernier paragraphe de #29 affirmait
+    qu'aucune ressource "workflow" distincte n'existait cote Foundry ;
+    relecture de la doc officielle "Declarative Workflows" (Microsoft Agent
+    Framework) et introspection du SDK installe (`azure-ai-projects==2.2.0`,
+    `_models.py`) montrent le contraire : `WorkflowAgentDefinition` existe
+    bien (`discriminator="workflow"`, champ `workflow: str` = "The CSDL YAML
+    definition of the workflow"), enregistrable via le meme
+    `agents.create_version(agent_name=..., definition=...)` que les six
+    agents. Conserve #29 tel quel (registre historique) plutot que de le
+    corriger sur place.
+
+    Aucun exportateur n'existe pour generer ce CSDL depuis le
+    `WorkflowBuilder` Python (ni dans `agent-framework`, ni cote Foundry) :
+    le YAML est donc ecrit a la main, en miroir de la topologie reelle de
+    `src/orchestrator/graph.py` (sequence des six agents, boucle
+    `RootCause <-> GatherEvidence` bornee par `loopCount`/`maxReflectionLoops`,
+    porte HITL `Question`/`approved`) - valeurs de seuil/boucle recopiees en
+    dur (`confidenceThreshold: 0.75`, `maxReflectionLoops: 2`) car ce workflow
+    autonome cote Foundry n'a pas acces a `src/config.py`/`.env`. Champs
+    Pydantic (`confiance`, `preuves_manquantes`, `texte`, etc.) repris
+    exactement de `src/models.py` dans les expressions Power Fx du YAML.
+    Schema CSDL (kinds d'action, boucles via `GotoAction`+`If`, porte HITL via
+    `Question`) confirme par lecture de la doc officielle plutot que devine,
+    conformement a la consigne "ne pas deviner les API" - cf. en-tete de
+    `foundry_workflow.yaml` pour le detail des choix (forme trigger-based du
+    CSDL, espace de noms `Local.*`, fonctions Power Fx utilisees).
+
+    Header `Foundry-Features: WorkflowAgents=V1Preview` (fonctionnalite
+    preview) : confirme par lecture du source installe
+    (`azure/ai/projects/operations/_patch_agents.py`) que le SDK l'ajoute
+    automatiquement dans `create_version` dans le cas ou
+    `AIProjectClient(..., allow_preview=True)` est utilise - le meme flag
+    `allow_preview=True` deja en place pour #29, aucun code supplementaire
+    necessaire.
+
+    Limite assumee, documentee dans l'en-tete de `foundry_workflow.yaml` et
+    docs/deployment.md §8.14 : ce CSDL ne s'execute pas reellement (les six
+    `InvokeAzureAgent` referencent des `ExternalAgentDefinition` - entrees
+    metadata-only sans modele/instructions cote Foundry, cf. #29), donc
+    "Run Workflow" dans le portail echouera probablement a la premiere
+    invocation d'agent. Sa valeur est l'affichage de la topologie
+    (noeuds/aretes/conditions) dans le canevas visuel, pas l'execution ;
+    l'execution reelle reste 100% `src/orchestrator/graph.py` + `executors.py`,
+    observable via les traces OTel (#25, docs/deployment.md §8.12). A
+    resynchroniser a la main si `graph.py` change.

@@ -1,0 +1,237 @@
+#
+# Workflow CSDL "miroir" du graphe d'orchestration reel
+# (src/orchestrator/graph.py), pour le rendre visible/navigable dans le
+# canevas visuel du projet Microsoft Foundry (onglet Agents > Workflow).
+#
+# Ecrit a la main a partir de la documentation officielle "Declarative
+# Workflows" (Microsoft Agent Framework - structure trigger-based / actions
+# CSDL). Il n'existe pas d'exportateur automatique du WorkflowBuilder Python
+# vers CSDL (DECISIONS.md #30) : ce fichier est un second artefact, distinct
+# du code qui s'execute reellement.
+#
+# IMPORTANT - ce que ce fichier N'EST PAS :
+# - Ce n'est PAS l'orchestration qui s'execute reellement : celle-ci reste
+#   100% src/orchestrator/graph.py + executors.py (agents appeles directement
+#   contre Azure OpenAI, cf. src/agents/clients.py). Ce YAML est maintenu a la
+#   main pour que la TOPOLOGIE (sequence, boucle de reflexion bornee, porte
+#   HITL) soit visible dans Foundry, pas pour etre executee en production.
+# - Les six InvokeAzureAgent ci-dessous referencent des agents enregistres
+#   comme ExternalAgentDefinition (scripts/register_foundry_agents.py) :
+#   entrees metadata-only, sans modele/instructions cote Foundry. Cliquer
+#   "Run Workflow" dans le portail echouera donc probablement a la premiere
+#   invocation d'agent - seul l'AFFICHAGE du graphe (noeuds/aretes/conditions)
+#   est garanti utile. L'execution reelle reste observable uniquement via
+#   Observability > Traces (docs/deployment.md section 8.12).
+# - A resynchroniser a la main si src/orchestrator/graph.py change (seuil de
+#   confiance, nombre max de boucles, ordre des etapes, etc.) : voir
+#   docs/deployment.md section 8.14.
+#
+# Pour tester dans le chat "Run Workflow" du portail : coller le contenu de
+# data/payment-incident.log (ou tout autre log d'incident) comme premier
+# message - il est capture par l'action `capture_raw_logs` ci-dessous.
+#
+kind: Workflow
+trigger:
+
+  kind: OnConversationStart
+  id: incident_rca_workflow
+  actions:
+
+    # --- Capture de l'incident brut (1er message de la conversation) -------
+    - kind: SetVariable
+      id: capture_raw_logs
+      displayName: Capture raw incident logs from first message
+      variable: Local.RawLogs
+      value: =System.LastMessage.Text
+
+    # --- Etat de la boucle de reflexion bornee (cf. src/config.py) ---------
+    # CONFIDENCE_THRESHOLD et MAX_REFLECTION_LOOPS sont des constantes
+    # "non negociables" (CLAUDE.md) : valeurs par defaut recopiees ici
+    # (0.75 / 2) car ce workflow autonome n'a pas acces a Settings/.env.
+    - kind: SetMultipleVariables
+      id: init_loop_state
+      displayName: Initialize bounded reflection-loop state
+      variables:
+        Local.loopCount: 0
+        Local.confidenceThreshold: 0.75
+        Local.maxReflectionLoops: 2
+
+    # --- Agent 1/6 : LogAnalyzer ---------------------------------------------
+    - kind: InvokeAzureAgent
+      id: invoke_log_analyzer
+      displayName: "Agent 1/6: LogAnalyzer"
+      agent:
+        name: LogAnalyzer
+      conversationId: =System.ConversationId
+      input:
+        messages: =Local.RawLogs
+      output:
+        responseObject: Local.LogAnalysisResult
+        autoSend: true
+
+    # --- Agent 2/6 : IncidentExtractor ---------------------------------------
+    - kind: InvokeAzureAgent
+      id: invoke_incident_extractor
+      displayName: "Agent 2/6: IncidentExtractor"
+      agent:
+        name: IncidentExtractor
+      conversationId: =System.ConversationId
+      input:
+        arguments:
+          log_analysis: =Local.LogAnalysisResult
+      output:
+        responseObject: Local.IncidentResult
+        autoSend: true
+
+    # --- Agent 3/6 : KBSearch -------------------------------------------------
+    - kind: InvokeAzureAgent
+      id: invoke_kb_search
+      displayName: "Agent 3/6: KBSearch"
+      agent:
+        name: KBSearch
+      conversationId: =System.ConversationId
+      input:
+        arguments:
+          incident: =Local.IncidentResult
+      output:
+        responseObject: Local.KbMatchesResult
+        autoSend: true
+
+    # --- Agent 4/6 : RootCause (cible du GotoAction de la boucle, plus bas) --
+    - kind: InvokeAzureAgent
+      id: invoke_root_cause
+      displayName: "Agent 4/6: RootCause"
+      agent:
+        name: RootCause
+      conversationId: =System.ConversationId
+      input:
+        arguments:
+          incident: =Local.IncidentResult
+          log_analysis: =Local.LogAnalysisResult
+          kb_matches: =Local.KbMatchesResult
+      output:
+        responseObject: Local.RootCauseResult
+        autoSend: true
+
+    # --- Boucle de reflexion bornee ------------------------------------------
+    # Mirroir de needs_more_evidence() (src/orchestrator/graph.py) : reboucle
+    # si confiance < seuil ET loop_count < max. Pas de "else" ici : si la
+    # condition est fausse, l'execution tombe simplement au travers vers la
+    # porte HITL juste apres ce bloc (prochaine action de la sequence).
+    - kind: If
+      id: check_needs_more_evidence
+      displayName: Bounded reflection loop (confidence below threshold?)
+      condition: =And(Local.RootCauseResult.confiance < Local.confidenceThreshold, Local.loopCount < Local.maxReflectionLoops)
+      then:
+        - kind: SetVariable
+          id: increment_loop_count
+          displayName: Increment loop_count (mirrors GatherEvidenceExecutor)
+          variable: Local.loopCount
+          value: =Local.loopCount + 1
+
+        - kind: SendActivity
+          id: send_routing_note
+          displayName: Routing note (mirrors context.routing_note)
+          activity:
+            text: =Concat("Confidence ", Local.RootCauseResult.confiance, " is below threshold (loop ", Local.loopCount, "/", Local.maxReflectionLoops, ") — gathering more evidence. Missing -", Local.RootCauseResult.preuves_manquantes)
+
+        # GatherEvidence (pas un agent dedie, DECISIONS.md #5) : reinvoque
+        # LogAnalyzer en ciblant les preuves manquantes, puis rafraichit
+        # KBSearch, avant de reboucler sur RootCause.
+        - kind: InvokeAzureAgent
+          id: gather_evidence_log_analyzer
+          displayName: "GatherEvidence: re-invoke LogAnalyzer (focused)"
+          agent:
+            name: LogAnalyzer
+          conversationId: =System.ConversationId
+          input:
+            messages: =Local.RawLogs
+            arguments:
+              focus: =Local.RootCauseResult.preuves_manquantes
+          output:
+            responseObject: Local.LogAnalysisResult
+            autoSend: true
+
+        - kind: InvokeAzureAgent
+          id: gather_evidence_kb_search
+          displayName: "GatherEvidence: re-invoke KBSearch"
+          agent:
+            name: KBSearch
+          conversationId: =System.ConversationId
+          input:
+            arguments:
+              incident: =Local.IncidentResult
+          output:
+            responseObject: Local.KbMatchesResult
+            autoSend: true
+
+        - kind: GotoAction
+          id: loop_back_to_root_cause
+          displayName: Jump back to RootCause
+          actionId: invoke_root_cause
+
+    # --- Porte HITL (src/orchestrator/executors.py HumanApprovalExecutor) ---
+    # Aucune remediation n'est proposee/affichee sans validation humaine
+    # explicite (CLAUDE.md - contraintes a ne pas contourner).
+    - kind: Question
+      id: human_approval_gate
+      displayName: Human-in-the-loop approval gate
+      question:
+        text: =Concat("Root cause hypothesis - ", Local.RootCauseResult.cause, " (confidence ", Local.RootCauseResult.confiance, "). Approve proceeding to remediation? (yes/no)")
+      variable: Local.approved
+      default: "no"
+
+    - kind: If
+      id: check_approval
+      displayName: Branch on human approval
+      condition: =Local.approved = "yes"
+      then:
+        # --- Agent 5/6 : Remediation (uniquement si approuve) ---------------
+        - kind: InvokeAzureAgent
+          id: invoke_remediation
+          displayName: "Agent 5/6: Remediation"
+          agent:
+            name: Remediation
+          conversationId: =System.ConversationId
+          input:
+            arguments:
+              incident: =Local.IncidentResult
+              root_cause: =Local.RootCauseResult
+              kb_matches: =Local.KbMatchesResult
+          output:
+            responseObject: Local.RemediationResult
+            autoSend: true
+
+        # --- Agent 6/6 : Summary ----------------------------------------------
+        - kind: InvokeAzureAgent
+          id: invoke_summary
+          displayName: "Agent 6/6: Summary"
+          agent:
+            name: Summary
+          conversationId: =System.ConversationId
+          input:
+            arguments:
+              incident: =Local.IncidentResult
+              log_analysis: =Local.LogAnalysisResult
+              root_cause: =Local.RootCauseResult
+              remediation_plan: =Local.RemediationResult
+              kb_matches: =Local.KbMatchesResult
+          output:
+            responseObject: Local.SummaryResult
+            autoSend: true
+
+        - kind: SendActivity
+          id: send_final_report
+          displayName: Send final incident report
+          activity:
+            text: =Local.SummaryResult.texte
+      else:
+        - kind: SendActivity
+          id: send_declined_notice
+          displayName: Human declined - stop without remediation
+          activity:
+            text: "Remediation declined by the human reviewer. Stopping without generating or displaying a remediation plan (no action is ever executed on a live system)."
+
+    - kind: EndWorkflow
+      id: end_workflow
+      displayName: End workflow

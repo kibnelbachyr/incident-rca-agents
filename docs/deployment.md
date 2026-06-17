@@ -433,10 +433,48 @@ Dans **https://ai.azure.com** → projet `proj-${resourceToken}` → **Agents**,
 les six agents apparaissent avec leur description ; **Observability > Traces**
 (§8.12) montre ensuite leurs exécutions une fois Application Insights connecté.
 
-> Aucun « workflow » séparé n'est enregistré : le graphe d'orchestration
-> (`WorkflowBuilder`, boucle de réflexion, porte HITL) est déjà entièrement
-> visible comme timeline dans **Observability > Traces** (§8.12) — il n'existe
-> pas de ressource « workflow » distincte côté Foundry à enregistrer.
+> §8.12 rend déjà l'exécution complète (boucle de réflexion, porte HITL)
+> visible comme timeline dans **Observability > Traces**. §8.14 ci-dessous
+> enregistre en complément un second artefact, purement visuel, pour rendre
+> la **topologie** du graphe navigable dans l'onglet Agents.
+
+### 8.14 Rendre le graphe d'orchestration visible dans le projet Microsoft Foundry
+
+`scripts/register_foundry_workflow.py` enregistre l'orchestration comme un
+agent de type **Workflow** (`WorkflowAgentDefinition`), en complément des
+six agents (§8.13). Contrairement à ceux-ci, ce script enregistre un second
+artefact distinct : `scripts/foundry_workflow.yaml`, une définition **CSDL
+écrite à la main** qui reproduit la topologie de `src/orchestrator/graph.py`
+(séquence, boucle de réflexion bornée, porte HITL) afin qu'elle soit
+visible/navigable dans le canevas visuel du projet Foundry.
+
+> **Ce que ce YAML n'est pas :** il ne s'exécute pas réellement — pas
+> d'exportateur du `WorkflowBuilder` Python vers CSDL — et n'est pas
+> resynchronisé automatiquement si `src/orchestrator/graph.py` change
+> (seuil de confiance, nombre max de boucles, etc.). L'orchestration qui
+> tourne réellement reste 100% `src/orchestrator/graph.py` + `executors.py`.
+> Les six `InvokeAzureAgent` qu'il contient référencent les agents enregistrés
+> en `ExternalAgentDefinition` (§8.13) — des entrées metadata-only, sans
+> modèle/instructions côté Foundry — donc cliquer **« Run Workflow »** dans
+> le portail échouera probablement dès le premier appel d'agent. Seul
+> l'**affichage** du graphe (nœuds/arêtes/conditions) est garanti utile ;
+> voir DECISIONS.md #30 et l'en-tête de `foundry_workflow.yaml` pour le détail.
+
+**Prérequis :** identiques à §8.13, plus avoir déjà lancé
+`python -m scripts.register_foundry_agents` au moins une fois (les six
+agents référencés par `foundry_workflow.yaml` doivent déjà exister dans le
+projet).
+
+**Exécution (une fois, après chaque modification de `foundry_workflow.yaml`) :**
+
+```bash
+python -m scripts.register_foundry_workflow
+```
+
+Dans **https://ai.azure.com** → projet `proj-${resourceToken}` → **Agents**,
+un agent `IncidentRCAWorkflow` de type Workflow apparaît, avec le graphe
+visible dans le canevas. Comme pour les agents (§8.13), relancer le script
+crée une nouvelle version (l'historique est conservé par Foundry).
 
 ## 9. Tests
 
