@@ -145,23 +145,14 @@ body::after {
 }
 
 .header__logo {
-  width: 28px;
   height: 28px;
+  width: auto;
 }
 
 .header__brand {
   display: flex;
   align-items: center;
   gap: 0.8rem;
-}
-
-.header__brand-sw1 {
-  font-family: var(--font-display);
-  font-size: 0.875rem;
-  font-weight: 800;
-  letter-spacing: -0.02em;
-  color: var(--primary);
-  white-space: nowrap;
 }
 
 .header__brand-sep {

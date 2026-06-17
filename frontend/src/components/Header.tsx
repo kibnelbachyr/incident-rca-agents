@@ -12,9 +12,8 @@ export default function Header({ meta, view, onViewChange }: HeaderProps) {
   return (
     <header className="header">
       <div className="header__title">
-        <img src="/sw1-mark.svg" alt="SoftwareOne" className="header__logo" />
+        <img src="/softwareone-logo.svg" alt="SoftwareOne" className="header__logo" />
         <div className="header__brand">
-          <span className="header__brand-sw1">SoftwareOne</span>
           <span className="header__brand-sep" aria-hidden="true" />
           <div>
             <h1>
