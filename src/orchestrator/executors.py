@@ -1,16 +1,16 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Executeurs du graphe d'orchestration (un par noeud, SPEC.md section 5).
+"""Executors for the orchestration graph (one per node, SPEC.md section 5).
 
-Chaque executeur enveloppe un agent (ou, pour `GatherEvidenceExecutor`, deux
-agents reinvoques) et met a jour le `SharedContext` qui circule de noeud en
-noeud via `ctx.send_message`. Tous les executeurs "pipeline" appellent aussi
-`ctx.yield_output(context)` : avec `WorkflowBuilder(output_from="all")`, cela
-rend chaque sortie d'agent observable dans le flux d'evenements (SPEC.md
-critere d'acceptation 7).
+Each executor wraps an agent (or, for `GatherEvidenceExecutor`, two
+re-invoked agents) and updates the `SharedContext` that flows from node to
+node via `ctx.send_message`. All "pipeline" executors also call
+`ctx.yield_output(context)`: with `WorkflowBuilder(output_from="all")`, this
+makes every agent output observable in the event stream (SPEC.md
+acceptance criterion 7).
 
-Les agents restent sans etat (SPEC.md section 2) : c'est l'orchestrateur (ces
-executeurs) qui lit/ecrit le contexte partage entre chaque appel.
+Agents remain stateless (SPEC.md section 2): it is the orchestrator (these
+executors) that reads/writes the shared context between each call.
 """
 
 from typing import Never
@@ -32,7 +32,7 @@ from src.models import RemediationApprovalRequest, SharedContext
 
 
 class LogAnalyzerExecutor(Executor):
-    """1er noeud : normalise les logs bruts en timeline/anomalies (agent 1/6)."""
+    """1st node: normalizes raw logs into a timeline/anomalies (agent 1/6)."""
 
     def __init__(self, agent: LogAnalyzerAgent, *, id: str = "log_analyzer") -> None:
         super().__init__(id=id)
@@ -47,7 +47,7 @@ class LogAnalyzerExecutor(Executor):
 
 
 class IncidentExtractorExecutor(Executor):
-    """2e noeud : produit l'objet incident structure (agent 2/6)."""
+    """2nd node: produces the structured incident object (agent 2/6)."""
 
     def __init__(self, agent: IncidentExtractorAgent, *, id: str = "incident_extractor") -> None:
         super().__init__(id=id)
@@ -64,7 +64,7 @@ class IncidentExtractorExecutor(Executor):
 
 
 class KBSearchExecutor(Executor):
-    """3e noeud : recherche de precedents dans la base de connaissances (agent 3/6)."""
+    """3rd node: searches for precedents in the knowledge base (agent 3/6)."""
 
     def __init__(self, agent: KBSearchAgent, *, id: str = "kb_search") -> None:
         super().__init__(id=id)
@@ -81,12 +81,12 @@ class KBSearchExecutor(Executor):
 
 
 class RootCauseExecutor(Executor):
-    """4e noeud : hypothese de cause racine + score de confiance (agent 4/6).
+    """4th node: root cause hypothesis + confidence score (agent 4/6).
 
-    Cible de l'arete conditionnelle de boucle (SPEC.md section 5) : la
-    fonction `needs_more_evidence` du graphe lit `context.root_cause.confiance`
-    et `context.loop_count` (mis a jour ici et par `GatherEvidenceExecutor`)
-    pour decider entre reboucler ou avancer vers la porte HITL.
+    Target of the conditional loop edge (SPEC.md section 5): the graph's
+    `needs_more_evidence` function reads `context.root_cause.confiance`
+    and `context.loop_count` (updated here and by `GatherEvidenceExecutor`)
+    to decide between looping back or advancing to the HITL gate.
     """
 
     def __init__(self, agent: RootCauseAgent, *, id: str = "root_cause") -> None:
@@ -115,12 +115,12 @@ class RootCauseExecutor(Executor):
 
 
 class GatherEvidenceExecutor(Executor):
-    """Etape de la boucle de reflexion (pas un agent dedie, DECISIONS.md #5).
+    """Step of the reflection loop (not a dedicated agent, DECISIONS.md #5).
 
-    Reinvoque `LogAnalyzer` en ciblant les `preuves_manquantes` du dernier
-    passage de `RootCause`, et rafraichit `KBSearch`, avant de repasser dans
-    `RootCauseExecutor`. Incremente `loop_count` (borne par
-    `MAX_REFLECTION_LOOPS`, verifiee par le graphe).
+    Re-invokes `LogAnalyzer` targeting the `preuves_manquantes` from the
+    last `RootCause` pass, and refreshes `KBSearch`, before passing back
+    into `RootCauseExecutor`. Increments `loop_count` (bounded by
+    `MAX_REFLECTION_LOOPS`, checked by the graph).
     """
 
     def __init__(
@@ -163,13 +163,13 @@ class GatherEvidenceExecutor(Executor):
 
 
 class HumanApprovalExecutor(Executor):
-    """Porte HITL (SPEC.md section 5) : suspend le graphe via
-    `ctx.request_info` jusqu'a reception d'une approbation booleenne.
+    """HITL gate (SPEC.md section 5): suspends the graph via
+    `ctx.request_info` until a boolean approval is received.
 
-    `RemediationApprovalRequest` ne porte qu'un sous-ensemble du contexte ; le
-    `SharedContext` complet est garde sur l'instance (DECISIONS.md #13) le
-    temps que l'appelant reponde via `workflow.run(responses={...})`, le
-    graphe et ses executeurs persistant entre les deux appels `run`.
+    `RemediationApprovalRequest` carries only a subset of the context; the
+    full `SharedContext` is kept on the instance (DECISIONS.md #13) while
+    waiting for the caller to respond via `workflow.run(responses={...})`,
+    since the graph and its executors persist between the two `run` calls.
     """
 
     def __init__(self, *, id: str = "human_approval") -> None:
@@ -197,7 +197,7 @@ class HumanApprovalExecutor(Executor):
         response: bool,
         ctx: WorkflowContext[SharedContext, SharedContext],
     ) -> None:
-        del original_request  # le contexte complet est sur self._context (cf. docstring de classe)
+        del original_request  # the full context lives on self._context (see class docstring)
 
         context = self._context
         assert context is not None
@@ -206,15 +206,15 @@ class HumanApprovalExecutor(Executor):
         if response:
             await ctx.send_message(context)
         else:
-            # Refus humain : on s'arrete ici (DECISIONS.md #14), aucun plan de
-            # remediation n'est genere ni affiche.
+            # Human rejection: we stop here (DECISIONS.md #14), no
+            # remediation plan is generated or displayed.
             await ctx.yield_output(context)
 
 
 class RemediationExecutor(Executor):
-    """5e noeud : plan de remediation priorise, invoque uniquement apres
-    approbation humaine (agent 5/6). Plan affiche uniquement, jamais execute
-    (CLAUDE.md - contraintes a ne pas contourner)."""
+    """5th node: prioritized remediation plan, invoked only after human
+    approval (agent 5/6). Plan is displayed only, never executed
+    (CLAUDE.md - constraints not to bypass)."""
 
     def __init__(self, agent: RemediationAgent, *, id: str = "remediation") -> None:
         super().__init__(id=id)
@@ -235,7 +235,7 @@ class RemediationExecutor(Executor):
 
 
 class SummaryExecutor(Executor):
-    """6e et dernier noeud : redige le rapport final (agent 6/6)."""
+    """6th and last node: writes the final report (agent 6/6)."""
 
     def __init__(self, agent: SummaryAgent, *, id: str = "summary") -> None:
         super().__init__(id=id)

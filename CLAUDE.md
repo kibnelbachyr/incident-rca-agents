@@ -1,97 +1,97 @@
-# CLAUDE.md — Démo : système multi-agents d'analyse d'incidents (paiement)
+# CLAUDE.md — Demo: multi-agent incident analysis system (payments)
 
-> Ce fichier est lu automatiquement par Claude Code. Il décrit le projet, la stack,
-> les conventions et les contraintes. La spécification fonctionnelle détaillée est
-> dans `SPEC.md`. Le déroulé de démo est dans `scenario-demo-incident-paiement.md`.
+> This file is read automatically by Claude Code. It describes the project, the
+> stack, the conventions and the constraints. The detailed functional specification
+> is in `SPEC.md`. The demo script is in `scenario-demo-incident-paiement.md`.
 
-## Objectif
+## Goal
 
-Construire une **démo** d'un système multi-agents **orchestré** qui diagnostique un
-incident sur un système de paiement : il ingère des logs, extrait l'incident, consulte
-une base de connaissances, cherche la cause racine, propose une remédiation et rédige
-un rapport. Le système doit être **déployable sur Azure** et s'appuyer sur le
+Build a **demo** of an **orchestrated** multi-agent system that diagnoses an
+incident on a payment system: it ingests logs, extracts the incident, queries
+a knowledge base, looks for the root cause, proposes a remediation and writes
+a report. The system must be **deployable on Azure** and built on the
 **Microsoft Agent Framework**.
 
-Ce qui doit transparaître dans la démo (priorité absolue) :
-1. Des agents spécialisés, chacun avec une responsabilité unique et un contrat I/O clair.
-2. Un **orchestrateur** qui pilote, garde l'état, et **décide** (reboucle si doute).
-3. Une **boucle de réflexion** : si la confiance de la cause racine est sous le seuil,
-   l'orchestrateur reboucle pour chercher plus de preuves au lieu de conclure.
-4. Un **human-in-the-loop** : aucune remédiation n'est proposée/exécutée sans validation.
+What must come across in the demo (top priority):
+1. Specialized agents, each with a single responsibility and a clear I/O contract.
+2. An **orchestrator** that drives, keeps state, and **decides** (loops back if in doubt).
+3. A **reflection loop**: if root-cause confidence is below the threshold,
+   the orchestrator loops back to gather more evidence instead of concluding.
+4. A **human-in-the-loop**: no remediation is proposed/executed without validation.
 
-## Stack technique
+## Tech stack
 
-- **Langage** : Python 3.11+.
-- **Orchestration** : Microsoft Agent Framework (`pip install agent-framework` — préversion).
-  - Agents : `ChatAgent` via `agent_framework.azure.AzureOpenAIChatClient`.
-  - Workflow : `WorkflowBuilder` (graphe) pour gérer la boucle conditionnelle + le HITL.
-- **Modèle** : Azure OpenAI / Microsoft Foundry (déploiement GPT-4o ou GPT-4.1).
-- **Base de connaissances (RAG)** : Azure AI Search (vecteur + mots-clés). En local,
-  démarrer avec `data/knowledge_base.json` puis basculer sur Azure AI Search.
-- **Persistance (optionnelle pour la démo)** : Azure Cosmos DB.
-- **Hébergement cible** : Azure Container Apps (API d'orchestration) ; UI minimale facultative.
-- **Auth** : `AzureCliCredential` en local, `DefaultAzureCredential` / Managed Identity en déployé.
-- **Observabilité** : télémétrie OpenTelemetry du framework → Application Insights.
+- **Language**: Python 3.11+.
+- **Orchestration**: Microsoft Agent Framework (`pip install agent-framework` — pre-release).
+  - Agents: `ChatAgent` via `agent_framework.azure.AzureOpenAIChatClient`.
+  - Workflow: `WorkflowBuilder` (graph) to manage the conditional loop + HITL.
+- **Model**: Azure OpenAI / Microsoft Foundry (GPT-4o or GPT-4.1 deployment).
+- **Knowledge base (RAG)**: Azure AI Search (vector + keyword). Locally,
+  start with `data/knowledge_base.json` then switch to Azure AI Search.
+- **Persistence (optional for the demo)**: Azure Cosmos DB.
+- **Target hosting**: Azure Container Apps (orchestration API); optional minimal UI.
+- **Auth**: `AzureCliCredential` locally, `DefaultAzureCredential` / Managed Identity when deployed.
+- **Observability**: framework OpenTelemetry telemetry → Application Insights.
 
-## Arborescence attendue
+## Expected layout
 
 ```
 .
-├── CLAUDE.md                 # ce fichier
-├── SPEC.md                   # spécification détaillée + contrats d'agents
+├── CLAUDE.md                 # this file
+├── SPEC.md                   # detailed specification + agent contracts
 ├── scenario-demo-incident-paiement.md
 ├── .env.example
 ├── pyproject.toml
 ├── README.md
 ├── data/
-│   ├── payment-incident.log  # logs d'exemple à injecter
-│   └── knowledge_base.json   # incidents passés + runbooks
+│   ├── payment-incident.log  # sample logs to inject
+│   └── knowledge_base.json   # past incidents + runbooks
 └── src/
-    ├── agents/               # un module par agent (instructions + contrat)
-    ├── orchestrator/         # graphe WorkflowBuilder, seuil, boucle, HITL
-    ├── tools/                # outil de recherche KB (Azure AI Search)
-    ├── models.py             # dataclasses / pydantic des contrats I/O
-    └── main.py               # point d'entrée CLI de la démo
+    ├── agents/               # one module per agent (instructions + contract)
+    ├── orchestrator/         # WorkflowBuilder graph, threshold, loop, HITL
+    ├── tools/                # KB search tool (Azure AI Search)
+    ├── models.py             # pydantic/dataclass I/O contracts
+    └── main.py               # demo CLI entry point
 ```
 
-## Commandes
+## Commands
 
 ```bash
-# Installation
+# Install
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 
-# Connexion Azure (dev local)
+# Azure login (local dev)
 az login
 
-# Lancer la démo sur l'incident d'exemple
+# Run the demo on the sample incident
 python -m src.main --logs data/payment-incident.log
 ```
 
 ## Conventions
 
-- Chaque agent renvoie un **contrat JSON strict** (voir `SPEC.md` §4). Les agents ne
-  se parlent jamais directement : tout passe par l'orchestrateur et le contexte partagé.
-- Les sorties structurées sont validées (pydantic). Prompter les agents pour qu'ils
-  renvoient **uniquement** du JSON, sans texte ni balises Markdown autour.
-- Modèle « léger » pour l'extraction (tâche mécanique), modèle « fort » pour la cause racine.
-- Code et identifiants en anglais ; commentaires en français acceptés.
+- Each agent returns a **strict JSON contract** (see `SPEC.md` §4). Agents never
+  talk to each other directly: everything goes through the orchestrator and the shared context.
+- Structured outputs are validated (pydantic). Prompt agents to return
+  **only** JSON, with no surrounding text or Markdown tags.
+- "Light" model for extraction (mechanical task), "strong" model for root cause.
+- Code, identifiers, and comments in English.
 
-## Contraintes à NE PAS contourner
+## Constraints NOT to bypass
 
-- **Boucle bornée** : `MAX_REFLECTION_LOOPS` (défaut 2). Jamais de boucle infinie.
-- **Seuil de confiance** : `CONFIDENCE_THRESHOLD` (défaut 0.75). Sous le seuil → reboucle.
-- **HITL obligatoire** : l'étape de remédiation est derrière une approbation humaine
-  (`@tool(approval_mode="always_require")` ou `ctx.request_info()`), même en démo.
-- **Pas d'exécution réelle** d'action correctrice : la remédiation est *proposée*, pas
-  appliquée sur un vrai système. La démo se contente d'afficher le plan après approbation.
-- **Pas de secrets en clair** : tout via `.env` / variables d'environnement / Key Vault.
+- **Bounded loop**: `MAX_REFLECTION_LOOPS` (default 2). Never an infinite loop.
+- **Confidence threshold**: `CONFIDENCE_THRESHOLD` (default 0.75). Below threshold → loop back.
+- **Mandatory HITL**: the remediation step is behind human approval
+  (`@tool(approval_mode="always_require")` or `ctx.request_info()`), even in the demo.
+- **No real execution** of corrective action: the remediation is *proposed*, not
+  applied to a real system. The demo only displays the plan after approval.
+- **No secrets in plaintext**: everything via `.env` / environment variables / Key Vault.
 
-## Références (à consulter via la doc, ne pas deviner les API)
+## References (consult via the docs, don't guess the APIs)
 
-- Agent Framework — vue d'ensemble : https://learn.microsoft.com/agent-framework/overview/
-- Orchestrations de workflows : https://learn.microsoft.com/agent-framework/workflows/orchestrations/
-- Human-in-the-loop : https://learn.microsoft.com/agent-framework/workflows/human-in-the-loop
-- Orchestration séquentielle + HITL : https://learn.microsoft.com/agent-framework/workflows/orchestrations/sequential
-- Archi de référence Azure (multi-agents) : https://learn.microsoft.com/azure/architecture/ai-ml/idea/multiple-agent-workflow-automation
-- Patterns d'orchestration d'agents : https://learn.microsoft.com/azure/architecture/ai-ml/guide/ai-agent-design-patterns
+- Agent Framework — overview: https://learn.microsoft.com/agent-framework/overview/
+- Workflow orchestrations: https://learn.microsoft.com/agent-framework/workflows/orchestrations/
+- Human-in-the-loop: https://learn.microsoft.com/agent-framework/workflows/human-in-the-loop
+- Sequential orchestration + HITL: https://learn.microsoft.com/agent-framework/workflows/orchestrations/sequential
+- Azure reference architecture (multi-agent): https://learn.microsoft.com/azure/architecture/ai-ml/idea/multiple-agent-workflow-automation
+- Agent orchestration patterns: https://learn.microsoft.com/azure/architecture/ai-ml/guide/ai-agent-design-patterns

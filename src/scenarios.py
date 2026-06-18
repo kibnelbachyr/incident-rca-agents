@@ -1,12 +1,12 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Registre des scenarios de demo exposes par la meme interface (UI/CLI/API).
+"""Registry of demo scenarios exposed through the same interface (UI/CLI/API).
 
-Un scenario associe un identifiant stable a son fichier de logs source et a
-des metadonnees d'affichage (UI). Le contenu agent correspondant (reponses
-`StubChatClient` en mode hors-ligne) vit dans `src.agents.clients`, garde
-separe d'ici pour eviter tout couplage entre ce registre et le detail des
-reponses canon par agent.
+A scenario associates a stable identifier with its source log file and
+display metadata (UI). The corresponding agent content (`StubChatClient`
+responses in offline mode) lives in `src.agents.clients`, kept separate from
+here to avoid any coupling between this registry and the detail of each
+agent's canonical responses.
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ DEFAULT_SCENARIO = "db_pool"
 
 @dataclass(frozen=True)
 class ScenarioDef:
-    """Definition statique d'un scenario de demo."""
+    """Static definition of a demo scenario."""
 
     id: str
     label: str
@@ -54,11 +54,11 @@ SCENARIOS: dict[str, ScenarioDef] = {
 
 
 def get_scenario(scenario_id: str | None) -> ScenarioDef:
-    """Resout un identifiant de scenario. `None` -> scenario par defaut.
+    """Resolves a scenario identifier. `None` -> default scenario.
 
-    Leve `KeyError` si un identifiant non vide est fourni mais inconnu (a
-    traduire en 400 par l'appelant HTTP plutot que de basculer silencieusement
-    sur un autre scenario).
+    Raises `KeyError` if a non-empty identifier is provided but unknown (to
+    be translated into a 400 by the HTTP caller rather than silently falling
+    back to another scenario).
     """
 
     if scenario_id is None:

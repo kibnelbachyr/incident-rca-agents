@@ -1,556 +1,569 @@
-# DECISIONS.md — Journal des decisions d'architecture
+# DECISIONS.md — Architecture decision log
 
-Decisions prises en autonomie pendant le developpement de la demo. Une ligne
-de contexte + justification par decision, ordre chronologique.
+Decisions made autonomously during development of the demo. One line of
+context + rationale per decision, chronological order.
 
-1. **`agent-framework` 1.8.x a casse les noms cites dans le brief.**
+1. **`agent-framework` 1.8.x broke the names cited in the brief.**
    `ChatAgent` / `agent_framework.azure.AzureOpenAIChatClient` / `create_agent`
-   n'existent plus (verifie par introspection du package installe + doc
-   Microsoft Learn "Significant Changes"). Remplaces par `Agent` (cree via
-   `BaseChatClient.as_agent(...)`) et
-   `agent_framework.openai.OpenAIChatCompletionClient`, qui route vers Azure
-   OpenAI via `azure_endpoint=` / `credential=` / les variables `AZURE_OPENAI_*`.
-   Conforme a la consigne "si une API a change, suis la doc, pas le brief".
+   no longer exist (verified by introspecting the installed package + the
+   Microsoft Learn "Significant Changes" doc). Replaced by `Agent` (created via
+   `BaseChatClient.as_agent(...)`) and
+   `agent_framework.openai.OpenAIChatCompletionClient`, which routes to Azure
+   OpenAI via `azure_endpoint=` / `credential=` / the `AZURE_OPENAI_*` variables.
+   Complies with the instruction "if an API has changed, follow the docs, not
+   the brief".
 
-2. **Contexte partage = un seul objet pydantic (`SharedContext`) qui circule
-   par message entre les `Executor`** (`ctx.send_message`), plutot que
-   `ctx.set_state`/`get_state`. Plus simple a inspecter/logger a chaque etape
-   du streaming, et evite tout etat global mutable partage entre executions
-   concurrentes du workflow.
+2. **Shared context = a single pydantic object (`SharedContext`) that travels
+   as a message between `Executor`s** (`ctx.send_message`), rather than
+   `ctx.set_state`/`get_state`. Simpler to inspect/log at every streaming
+   step, and avoids any mutable global state shared across concurrent
+   workflow runs.
 
-3. **Abstraction `StructuredChatClient` (Protocol) avec deux implementations** :
-   `StubChatClient` (reponses figees, deterministes, zero appel reseau) et
-   `AzureOpenAIStructuredChatClient` (agents reels via `as_agent` +
-   `default_options={"response_format": <ModelePydantic>}`).
-   `get_chat_client(settings, light=...)` choisit automatiquement selon
-   `Settings.use_real_azure_openai` (endpoint Azure OpenAI reel configure ou
-   non). Permet d'executer toute la demo et les 8 criteres d'acceptation hors
-   ligne, sans credentials Azure.
+3. **`StructuredChatClient` abstraction (Protocol) with two implementations**:
+   `StubChatClient` (fixed, deterministic responses, zero network calls) and
+   `AzureOpenAIStructuredChatClient` (real agents via `as_agent` +
+   `default_options={"response_format": <PydanticModel>}`).
+   `get_chat_client(settings, light=...)` automatically picks based on
+   `Settings.use_real_azure_openai` (whether a real Azure OpenAI endpoint is
+   configured or not). Lets the whole demo and the 8 acceptance criteria run
+   offline, without Azure credentials.
 
-4. **`StubChatClient` reproduit fidelement le scenario de demo**, y compris la
-   boucle de reflexion : pour l'agent `RootCause`, le 1er appel renvoie
-   confiance 0.55 (deux hypotheses concurrentes + `preuves_manquantes` non
-   vide), le 2e appel (apres `GatherEvidence`) renvoie confiance 0.88 et
-   designe le changement de `max_pool_size` (Stripe ecarte). Les autres agents
-   renvoient une reponse canonique conforme a SPEC.md section 4 / section 6.
+4. **`StubChatClient` faithfully reproduces the demo scenario**, including the
+   reflection loop: for the `RootCause` agent, the 1st call returns
+   confidence 0.55 (two competing hypotheses + non-empty
+   `preuves_manquantes`), the 2nd call (after `GatherEvidence`) returns
+   confidence 0.92 and points to the `max_pool_size` change (Stripe ruled
+   out). The other agents return a canonical response matching SPEC.md
+   section 4 / section 6.
 
-5. **`GatherEvidence` n'est PAS un 7e agent.** C'est une etape de
-   l'orchestrateur (cf. SPEC.md section 5) qui re-sollicite les agents
-   `LogAnalyzer` (avec les `preuves_manquantes` en focus) et `KBSearch`, et
-   fusionne le resultat dans `SharedContext` avant de repasser dans
-   `RootCause`. Conserve exactement les "six agents specialises" de la section 2.
+5. **`GatherEvidence` is NOT a 7th agent.** It's an orchestrator step (see
+   SPEC.md section 5) that re-queries the `LogAnalyzer` agent (focused on the
+   `preuves_manquantes`) and `KBSearch`, and merges the result into
+   `SharedContext` before passing back into `RootCause`. Keeps exactly the
+   "six specialized agents" from section 2.
 
-6. **Boucle de reflexion implementee avec `add_switch_case_edge_group`** apres
-   l'executeur `RootCause` : `Case(needs_more_evidence -> GatherEvidence)`,
-   `Default(-> HumanApproval)`, et `add_edge(GatherEvidence, RootCause)` ferme
-   le cycle. `needs_more_evidence` = `confiance < CONFIDENCE_THRESHOLD and
-   loop_count < MAX_REFLECTION_LOOPS` : la boucle est donc bornee par
-   construction (critere d'acceptation 8).
+6. **Reflection loop implemented with `add_switch_case_edge_group`** after the
+   `RootCause` executor: `Case(needs_more_evidence -> GatherEvidence)`,
+   `Default(-> HumanApproval)`, and `add_edge(GatherEvidence, RootCause)`
+   closes the cycle. `needs_more_evidence` = `confiance < CONFIDENCE_THRESHOLD
+   and loop_count < MAX_REFLECTION_LOOPS`: the loop is therefore bounded by
+   construction (acceptance criterion 8).
 
-7. **Porte HITL implementee avec `ctx.request_info(RemediationApprovalRequest,
-   response_type=bool)` + `@response_handler`** plutot que
-   `@tool(approval_mode="always_require")` : la remediation est un executeur
-   dedie (pas un appel d'outil isole), donc geler l'executeur lui-meme via
-   `request_info` est plus direct et produit un `RequestInfoEvent` observable
-   dans le flux (critere d'acceptation 5).
+7. **HITL gate implemented with `ctx.request_info(RemediationApprovalRequest,
+   response_type=bool)` + `@response_handler`** rather than
+   `@tool(approval_mode="always_require")`: remediation is a dedicated
+   executor (not an isolated tool call), so pausing the executor itself via
+   `request_info` is more direct and produces an observable `RequestInfoEvent`
+   in the stream (acceptance criterion 5).
 
-8. **`LocalKnowledgeBase` calcule une similarite de Jaccard reelle** entre le
-   vocabulaire (services + symptomes) de l'incident et celui (services +
-   symptomes + tags) de chaque precedent de `knowledge_base.json`. Avec
-   seulement deux precedents et `top_k=2`, les deux sont toujours retournes :
-   le critere d'acceptation 2 est satisfait independamment du LLM/stub.
-   Interface `KnowledgeBase` commune avec `AzureAISearchKnowledgeBase`
-   (`azure.search.documents.aio.SearchClient`) pour `KB_MODE=azure_search`.
+8. **`LocalKnowledgeBase` computes a real Jaccard similarity** between the
+   vocabulary (services + symptomes) of the incident and that (services +
+   symptomes + tags) of each precedent in `knowledge_base.json`.
+   `knowledge_base.json` now holds four past incidents; with `top_k=2`, only
+   the two highest-scoring matches are returned: acceptance criterion 2 is
+   satisfied independently of the LLM/stub. `KnowledgeBase` interface shared
+   with `AzureAISearchKnowledgeBase`
+   (`azure.search.documents.aio.SearchClient`) for `KB_MODE=azure_search`.
 
-9. **`Incident.severite` valide par regex `^SEV-[1-5]$`** (pas un `Literal`
-   fige sur "SEV-1") : conserve le contrat reutilisable pour d'autres
-   incidents tout en validant le format attendu par le critere 1.
+9. **`Incident.severite` is validated with regex `^SEV-[1-5]$`** (not a
+   `Literal` fixed to "SEV-1"): keeps the contract reusable for other
+   incidents while still validating the format expected by acceptance
+   criterion 1.
 
-10. **Aucun secret en dur** : `Settings` (pydantic-settings) lit uniquement
-    `.env` / variables d'environnement ; `.env` reste hors git, seul
-    `.env.example` est versionne.
+10. **No hardcoded secrets**: `Settings` (pydantic-settings) only reads
+    `.env` / environment variables; `.env` stays out of git, only
+    `.env.example` is versioned.
 
-11. **La remediation reste strictement un plan affiche.** `RemediationPlan`
-    est un objet de donnees ; aucun executeur n'appelle d'API d'infrastructure
-    reelle. "Executer" = afficher le plan dans le rapport CLI apres
-    approbation humaine.
+11. **Remediation stays strictly a displayed plan.** `RemediationPlan`
+    is a data object; no executor calls any real infrastructure API.
+    "Executing" = displaying the plan in the CLI report after human
+    approval.
 
-12. **Pas de `from __future__ import annotations` dans `executors.py`.**
-    `@response_handler` (sur `HumanApprovalExecutor.handle_response`)
-    introspecte la signature via `inspect.signature(...).annotation` SANS
-    resoudre les chaines PEP 563 ; avec l'import `__future__`,
-    `WorkflowContext[SharedContext, SharedContext]` devient une chaine et
-    `_validate_response_handler_signature` echoue (`ValueError: ... must be
-    annotated as WorkflowContext...`). Tous les types utilises sont importes
-    en tete de fichier, donc retirer l'import futur est sans risque sous
-    Python 3.11+.
+12. **No `from __future__ import annotations` in `executors.py`.**
+    `@response_handler` (on `HumanApprovalExecutor.handle_response`)
+    introspects the signature via `inspect.signature(...).annotation`
+    WITHOUT resolving PEP 563 strings; with the `__future__` import,
+    `WorkflowContext[SharedContext, SharedContext]` becomes a string and
+    `_validate_response_handler_signature` fails (`ValueError: ... must be
+    annotated as WorkflowContext...`). All types used are imported at the
+    top of the file, so removing the future import is safe under Python
+    3.11+.
 
-13. **`ctx.yield_output(context)` transmet une reference directe (pas une
-    copie) au `SharedContext` mutable.** Apres un `run()` complet, tous les
-    evenements `type="output"` du resultat partagent donc le MEME objet
-    final : les champs reaffectes (ex. `root_cause`, `log_analysis`) ne
-    refletent que la derniere valeur si inspectes a posteriori, alors que les
-    champs accumules par `.append()`/`.extend()` (`root_cause_history`,
-    `evidence_log`) conservent l'historique complet. Les tests
-    d'orchestration lisent donc `root_cause_history` pour distinguer les deux
-    passages de `RootCause`. En streaming (`stream=True`), chaque
-    `event.data` reste un instantane pertinent au moment de l'emission.
+13. **`ctx.yield_output(context)` passes a direct reference (not a copy)
+    to the mutable `SharedContext`.** After a complete `run()`, every
+    `type="output"` event in the result therefore shares the SAME final
+    object: reassigned fields (e.g. `root_cause`, `log_analysis`) only
+    reflect the last value if inspected after the fact, whereas fields
+    accumulated via `.append()`/`.extend()` (`root_cause_history`,
+    `evidence_log`) keep the full history. Orchestration tests therefore
+    read `root_cause_history` to distinguish the two `RootCause` passes.
+    In streaming mode (`stream=True`), each `event.data` remains a
+    relevant snapshot at the moment it was emitted.
 
-14. **`HumanApprovalExecutor` garde le `SharedContext` complet sur
-    `self._context`** (attribut d'instance) entre `handle()` (qui emet
-    `request_info`) et `@response_handler handle_response()` (qui recoit la
-    reponse). `RemediationApprovalRequest` ne porte qu'un sous-ensemble
-    (incident, root_cause, kb_matches) car c'est ce sous-ensemble qui doit
-    etre presente a l'humain / serialise dans l'evenement `request_info` ; le
-    contexte complet, lui, doit reprendre son chemin dans le graphe via
-    `ctx.send_message`. Ce pattern fonctionne car le `Workflow` et ses
-    executeurs persistent entre les deux appels `workflow.run()` (premier run
-    qui pause, puis `run(responses={...})`).
+14. **`HumanApprovalExecutor` keeps the full `SharedContext` on
+    `self._context`** (instance attribute) between `handle()` (which emits
+    `request_info`) and `@response_handler handle_response()` (which
+    receives the response). `RemediationApprovalRequest` only carries a
+    subset (incident, root_cause, kb_matches) because that's the subset
+    that needs to be shown to the human / serialized in the `request_info`
+    event; the full context, on the other hand, needs to continue its path
+    through the graph via `ctx.send_message`. This pattern works because
+    the `Workflow` and its executors persist between the two
+    `workflow.run()` calls (the first run that pauses, then
+    `run(responses={...})`).
 
-15. **Refus humain = `ctx.yield_output(context)` au lieu de
-    `ctx.send_message(context)`** dans `handle_response`. Aucune arete ne
-    part de `human_approval` vers un noeud terminal alternatif : c'est
-    l'ABSENCE de `send_message` qui arrete le graphe (plus aucun executeur a
-    invoquer), tandis que `yield_output` produit la seule sortie observable
-    (`approved=False`, `remediation_plan=None`, `report=None`). Conforme a
-    SPEC.md/CLAUDE.md : aucun plan n'est genere ni affiche sans approbation.
+15. **Human rejection = `ctx.yield_output(context)` instead of
+    `ctx.send_message(context)`** in `handle_response`. No edge leaves
+    `human_approval` toward an alternative terminal node: it's the ABSENCE
+    of `send_message` that stops the graph (no more executor to invoke),
+    while `yield_output` produces the only observable output
+    (`approved=False`, `remediation_plan=None`, `report=None`). Complies
+    with SPEC.md/CLAUDE.md: no plan is generated or displayed without
+    approval.
 
-16. **`needs_more_evidence` est une closure qui capture `settings`** (et non
-    une fonction pure `(context, settings)`), car `Case(condition:
-    Callable[[Any], bool], target=...)` n'accepte qu'un seul argument (le
-    `SharedContext` achemine sur l'arete). `CONFIDENCE_THRESHOLD` /
-    `MAX_REFLECTION_LOOPS` ne font pas partie du contrat de donnees ; ils sont
-    injectes via la portee de `build_workflow(settings)`, qui est aussi
-    l'endroit naturel ou `light_client`/`strong_client` et les agents
-    partages (`log_analyzer_agent`, `kb_search_agent`, reutilises par
-    `GatherEvidenceExecutor`) sont construits.
+16. **`needs_more_evidence` is a closure that captures `settings`**
+    (rather than a pure function `(context, settings)`), because
+    `Case(condition: Callable[[Any], bool], target=...)` only accepts a
+    single argument (the `SharedContext` carried on the edge).
+    `CONFIDENCE_THRESHOLD` / `MAX_REFLECTION_LOOPS` are not part of the
+    data contract; they're injected through the closure scope of
+    `build_workflow(settings)`, which is also the natural place where
+    `light_client`/`strong_client` and the shared agents
+    (`log_analyzer_agent`, `kb_search_agent`, reused by
+    `GatherEvidenceExecutor`) are built.
 
-17. **Persistance via un `Protocol` `PersistenceStore`** (src/tools/persistence.py),
-    sur le meme modele que `KnowledgeBase` (DECISIONS.md #8) :
-    `LocalPersistenceStore` (fichiers JSON sous `output/runs/`, mode par
-    defaut/hors-ligne) et `CosmosPersistenceStore`
-    (`azure.cosmos.aio.CosmosClient`, partition key `/id`). `get_persistence_store(settings)`
-    choisit selon `settings.cosmos_endpoint`. Le conteneur Cosmos est suppose
-    deja provisionne par Bicep (azd) : le code applicatif ne fait que du
-    data-plane (`upsert_item`/`read_item`/`query_items`), jamais de creation
-    de base/conteneur, et utilise `AzureCliCredential`/`DefaultAzureCredential`
-    selon `AZURE_AUTH_MODE` (variantes async de DECISIONS.md, coherentes avec
-    `src/agents/clients.py`).
+17. **Persistence via a `PersistenceStore` `Protocol`** (src/tools/persistence.py),
+    on the same model as `KnowledgeBase` (DECISIONS.md #8):
+    `LocalPersistenceStore` (JSON files under `output/runs/`, default/
+    offline mode) and `CosmosPersistenceStore`
+    (`azure.cosmos.aio.CosmosClient`, partition key `/id`).
+    `get_persistence_store(settings)` picks based on
+    `settings.cosmos_endpoint`. The Cosmos container is assumed already
+    provisioned by Bicep (azd): the application code only does data-plane
+    operations (`upsert_item`/`read_item`/`query_items`), never database/
+    container creation, and uses `AzureCliCredential`/
+    `DefaultAzureCredential` depending on `AZURE_AUTH_MODE` (async variants,
+    consistent with `src/agents/clients.py`).
 
-18. **API FastAPI en deux phases SSE** (`src/api/runs.py`) au lieu d'un
-    websocket ou de `agent_framework_devui`/`ag_ui` (generiques, non adaptes a
-    l'UI du domaine) : `POST /api/runs` cree un `Workflow`
-    (`build_workflow`), le garde dans `app.state.runs` (registre en memoire
-    `{run_id: RunState}`) et streame un evenement `step` par sortie d'agent
-    (y compris la boucle `RootCause <-> GatherEvidence`) jusqu'a
+18. **Two-phase SSE FastAPI API** (`src/api/runs.py`) instead of a
+    websocket or `agent_framework_devui`/`ag_ui` (generic, not suited to
+    the domain UI): `POST /api/runs` creates a `Workflow`
+    (`build_workflow`), keeps it in `app.state.runs` (in-memory registry
+    `{run_id: RunState}`) and streams one `step` event per agent output
+    (including the `RootCause <-> GatherEvidence` loop) until
     `request_info` (`approval_required`). `POST /api/runs/{id}/approval`
-    reprend le MEME objet `Workflow` via `workflow.run(responses={request_id:
-    bool})` : conserver l'instance est necessaire car `HumanApprovalExecutor`
-    porte l'etat sur `self._context` entre les deux appels (DECISIONS.md
-    #14). Le refus (DECISIONS.md #15) ne produit qu'un `step`
-    `human_approval` puis `done` ; l'approbation produit `remediation` +
-    `summary` puis persiste le `SharedContext` final via `PersistenceStore`
-    avant `done`. `EventSource` ne permettant pas le POST, le flux est
-    consomme cote client via `fetch` + `ReadableStream` (`frontend/src/api.ts`).
+    resumes the SAME `Workflow` object via
+    `workflow.run(responses={request_id: bool})`: keeping the instance is
+    necessary because `HumanApprovalExecutor` carries state on
+    `self._context` between the two calls (DECISIONS.md
+    #14). Rejection (DECISIONS.md #15) only produces a `human_approval`
+    `step` then `done`; approval produces `remediation` + `summary` then
+    persists the final `SharedContext` via `PersistenceStore` before
+    `done`. Since `EventSource` doesn't support POST, the stream is
+    consumed client-side via `fetch` + `ReadableStream`
+    (`frontend/src/api.ts`).
 
-19. **Frontend React + Vite, scaffolding minimal** (`frontend/`) : en dev,
-    `vite.config.ts` proxy `/api` vers `127.0.0.1:8000` (pas de CORS a gerer) ;
-    en prod, `frontend/dist/` est servi par FastAPI via `StaticFiles` au
-    montage `/` (`src/api/app.py`). `frontend/src/types.ts` reprend 1:1 les
-    contrats de `src/models.py` + les reponses de `src/api/*.py` (un seul jeu
-    de contrats cote backend, ce fichier reflete la forme JSON — tenu a jour
-    manuellement, pas de generation de schema pour rester simple en demo).
-    `TopologyGraph` anime le graphe a 8 noeuds de `src/orchestrator/graph.py` ;
-    comme `HumanApprovalExecutor` n'emet un `step` qu'en cas de refus
-    (DECISIONS.md #15), le passage par la porte HITL en cas d'approbation est
-    deduit (noeud + aretes `root_cause -> human_approval -> remediation`
-    marques visites/traverses) de la presence d'un `step` `remediation` dans
-    le flux, plutot que d'une transition consecutive explicite.
+19. **Minimal React + Vite frontend scaffolding** (`frontend/`): in dev,
+    `vite.config.ts` proxies `/api` to `127.0.0.1:8000` (no CORS to
+    manage); in production, `frontend/dist/` is served by FastAPI via
+    `StaticFiles` mounted at `/` (`src/api/app.py`). `frontend/src/types.ts`
+    mirrors 1:1 the contracts from `src/models.py` + the responses from
+    `src/api/*.py` (a single set of contracts on the backend side, this
+    file reflects the JSON shape — kept up to date by hand, no schema
+    generation to keep the demo simple). `TopologyGraph` animated the
+    8-node graph from `src/orchestrator/graph.py` (this component was
+    later superseded by `PipelineHUD` + `ActivityFeed`, see
+    `frontend/src/components/PipelineHUD.tsx` / `ActivityFeed.tsx` — no
+    later decision entry records the rename); as `HumanApprovalExecutor`
+    only emits a `step` on rejection (DECISIONS.md #15), passage through
+    the HITL gate on approval is inferred (node + edges `root_cause ->
+    human_approval -> remediation` marked visited/traversed) from the
+    presence of a `remediation` step in the stream, rather than from an
+    explicit consecutive transition.
 
-20. **`Dockerfile` reconstruit pour servir l'API + l'UI (plus le CLI)** :
-    `ENTRYPOINT` passe de `python -m src.main` a
+20. **`Dockerfile` rebuilt to serve the API + the UI (in addition to the
+    CLI)**: `ENTRYPOINT` changes from `python -m src.main` to
     `uvicorn src.api.app:app --host 0.0.0.0 --port 8000`
-    (`src/api/app.py`, DECISIONS.md #18, monte `frontend/dist/` via
-    `StaticFiles` si present). Etape 1 (`node:20-slim`, alias
-    `frontend-build`) execute `npm ci` + `npm run build` sur `frontend/` et
-    produit `frontend/dist/` ; etape 2 (`python:3.11-slim`) installe le
-    paquet (`pip install -e .`, conserve `src.config.REPO_ROOT` aligne sur
-    `/app` pour les chemins par defaut `data/*.json|log` et
-    `frontend/dist/`) puis copie `frontend/dist/` depuis l'etape 1.
-    `.dockerignore` exclut desormais `frontend/node_modules/`,
-    `frontend/dist/`, `frontend/*.tsbuildinfo` (arbre hote jamais embarque,
-    seul le build reproductible de l'etape 1 l'est) ainsi que `infra/`,
-    `.azure/`, `azure.yaml` (artefacts azd/Bicep sans rapport avec l'image
-    applicative). `EXPOSE 8000` (port d'ingress Container Apps) et
-    `ENV AZURE_AUTH_MODE=managed_identity` restent inchanges.
+    (`src/api/app.py`, DECISIONS.md #18, mounts `frontend/dist/` via
+    `StaticFiles` if present). Stage 1 (`node:20-slim`, alias
+    `frontend-build`) runs `npm ci` + `npm run build` on `frontend/` and
+    produces `frontend/dist/`; stage 2 (`python:3.11-slim`) installs the
+    package (`pip install -e .`, keeps `src.config.REPO_ROOT` aligned with
+    `/app` for the default `data/*.json|log` and `frontend/dist/` paths)
+    then copies `frontend/dist/` from stage 1. `.dockerignore` now
+    excludes `frontend/node_modules/`, `frontend/dist/`,
+    `frontend/*.tsbuildinfo` (the host tree is never embedded, only
+    stage 1's reproducible build is) as well as `infra/`, `.azure/`,
+    `azure.yaml` (azd/Bicep artifacts unrelated to the application image).
+    `EXPOSE 8000` (Container Apps ingress port) and
+    `ENV AZURE_AUTH_MODE=managed_identity` remain unchanged.
 
-21. **Provisionnement Azure via Bicep + Azure Developer CLI (azd)** :
-    `azure.yaml` declare un seul service `api` (`language: docker`, `host:
-    containerapp`, `docker.path: ./Dockerfile`) ; `infra/main.bicep` (portee
-    `subscription`) cree le resource group puis delegue a
-    `infra/resources.bicep` (portee resource group, parametre via
-    `infra/main.parameters.json` -> `${AZURE_ENV_NAME}` / `${AZURE_LOCATION}` /
-    `${AZURE_PRINCIPAL_ID}`). Conforme a CLAUDE.md "Stack technique"/"Hebergement
-    cible" : `resources.bicep` provisionne Log Analytics + Application Insights,
-    une identite managee utilisateur (attachee au Container App), un Container
-    Registry (+role `AcrPull`), un compte Azure OpenAI avec deux deploiements
-    (`gpt-4o` et `gpt-4o-mini`, sku `GlobalStandard`, versions `2024-08-06` /
-    `2024-07-18` verifiees via Microsoft Learn), Azure AI Search (sku `basic`,
-    pour le RAG), Cosmos DB serverless (base `incidents` / conteneur `records`,
-    partition key `/id`, alignes sur `src/tools/persistence.py`), un Container
-    Apps Environment et le Container App (`tags: {'azd-service-name': 'api'}`,
-    ingress externe port 8000, image placeholder
-    `mcr.microsoft.com/azuredocs/containerapps-helloworld:latest` remplacee par
-    `azd deploy`). Deux fichiers Bicep (et non une modularisation par service)
-    pour rester lisible en demo ; les deux compilent sans erreur via le Bicep
-    CLI standalone (`bicep build`, v0.44.1).
+21. **Azure provisioning via Bicep + Azure Developer CLI (azd)**:
+    `azure.yaml` declares a single `api` service (`language: docker`,
+    `host: containerapp`, `docker.path: ./Dockerfile`); `infra/main.bicep`
+    (`subscription` scope) creates the resource group then delegates to
+    `infra/resources.bicep` (resource-group scope, parameterized via
+    `infra/main.parameters.json` -> `${AZURE_ENV_NAME}` / `${AZURE_LOCATION}`
+    / `${AZURE_PRINCIPAL_ID}`). Complies with CLAUDE.md "Technical stack"/
+    "Target hosting": `resources.bicep` provisions Log Analytics +
+    Application Insights, a user-assigned managed identity (attached to
+    the Container App), a Container Registry (+ `AcrPull` role), an Azure
+    OpenAI account with two deployments (`gpt-4o` and `gpt-4o-mini`,
+    `GlobalStandard` sku, versions `2024-08-06` / `2024-07-18` verified via
+    Microsoft Learn), Azure AI Search (`basic` sku, for RAG), serverless
+    Cosmos DB (`incidents` database / `records` container, partition key
+    `/id`, aligned with `src/tools/persistence.py`), a Container Apps
+    Environment, and the Container App (`tags: {'azd-service-name':
+    'api'}`, external ingress on port 8000, placeholder image
+    `mcr.microsoft.com/azuredocs/containerapps-helloworld:latest` replaced
+    by `azd deploy`). Two Bicep files (rather than per-service
+    modularization) to stay readable for a demo; both compile without
+    errors via the standalone Bicep CLI (`bicep build`, v0.44.1).
 
-22. **Aucun secret en clair sur les ressources deployees** : `disableLocalAuth:
-    true` sur le compte Azure OpenAI et sur le compte Cosmos DB desactive les
-    cles API/maitre — toute l'authentification data-plane passe par des role
-    assignments Microsoft Entra ID (`Cognitive Services OpenAI User`, `Search
-    Index Data Reader`, le role Cosmos DB integre "Built-in Data Contributor"
-    `00000000-0000-0000-0000-000000000002` reference directement par GUID sans
-    `sqlRoleDefinitions` custom, et `AcrPull`), tous accordes au
-    `principalId`/`clientId` de l'identite managee du Container App. Celui-ci
-    recoit aussi `AZURE_AUTH_MODE=managed_identity` et
-    `AZURE_CLIENT_ID=<identity.clientId>` (necessaire pour que
-    `DefaultAzureCredential` choisisse cette identite utilisateur plutot qu'une
-    autre). Un parametre optionnel `principalId` (rempli par azd via
-    `AZURE_PRINCIPAL_ID`, vide par defaut) accorde les memes roles data-plane au
-    compte du developpeur, pour pointer `AZURE_AUTH_MODE=cli` (`az login`) vers
-    les vraies ressources deployees — les sorties `AZURE_OPENAI_ENDPOINT` /
-    `AZURE_AI_SEARCH_ENDPOINT` / `COSMOS_ENDPOINT` / ... de `main.bicep`
-    correspondent 1:1 aux alias de `Settings` (`src/config.py`) et sont
-    recuperables via `azd env get-values` pour completer un `.env` local.
-    `openAiChatDeploymentLight` porte un `dependsOn` explicite vers
-    `openAiChatDeployment` : Azure OpenAI rejette les operations de deploiement
-    concurrentes sur le meme compte, donc sans cette dependance ARM peut
-    paralleliser les deux et l'un des deux echoue. Le Container App garde
-    `scale: {minReplicas: 1, maxReplicas: 1}` : `app.state.runs`
-    (src/api/runs.py, DECISIONS.md #18) est un registre en memoire par
-    processus, donc plusieurs replicas casseraient la reprise HITL. `KB_MODE`
-    n'est volontairement PAS positionne sur le Container App (reste
-    `"local"`, valeur par defaut de `Settings`) : Azure AI Search est
-    provisionne (RAG, CLAUDE.md) et `AZURE_AI_SEARCH_ENDPOINT`/`_INDEX` sont
-    injectes avec le role `Search Index Data Reader`, mais sans pipeline
-    d'indexation de `data/knowledge_base.json` un `KB_MODE=azure_search` avec
-    index vide casserait le critere d'acceptation 2 (DECISIONS.md #8) ; un
-    utilisateur peut basculer manuellement apres indexation.
+22. **No plaintext secrets on deployed resources**: `disableLocalAuth:
+    true` on the Azure OpenAI account and on the Cosmos DB account
+    disables API/master keys — all data-plane authentication goes through
+    Microsoft Entra ID role assignments (`Cognitive Services OpenAI User`,
+    `Search Index Data Reader`, the built-in Cosmos DB role "Built-in Data
+    Contributor" `00000000-0000-0000-0000-000000000002` referenced
+    directly by GUID without a custom `sqlRoleDefinitions`, and
+    `AcrPull`), all granted to the Container App's managed identity
+    `principalId`/`clientId`. It also receives
+    `AZURE_AUTH_MODE=managed_identity` and
+    `AZURE_CLIENT_ID=<identity.clientId>` (needed so
+    `DefaultAzureCredential` picks this user-assigned identity rather than
+    another one). An optional `principalId` parameter (filled in by azd
+    via `AZURE_PRINCIPAL_ID`, empty by default) grants the same
+    data-plane roles to the developer's account, to point
+    `AZURE_AUTH_MODE=cli` (`az login`) at the real deployed resources —
+    the `AZURE_OPENAI_ENDPOINT` / `AZURE_AI_SEARCH_ENDPOINT` /
+    `COSMOS_ENDPOINT` / ... outputs from `main.bicep` map 1:1 to
+    `Settings` aliases (`src/config.py`) and can be fetched via
+    `azd env get-values` to fill in a local `.env`.
+    `openAiChatDeploymentLight` carries an explicit `dependsOn` on
+    `openAiChatDeployment`: Azure OpenAI rejects concurrent deployment
+    operations on the same account, so without this dependency ARM may
+    parallelize the two and one of them fails. The Container App keeps
+    `scale: {minReplicas: 1, maxReplicas: 1}`: `app.state.runs`
+    (src/api/runs.py, DECISIONS.md #18) is a per-process in-memory
+    registry, so multiple replicas would break HITL resumption. `KB_MODE`
+    is deliberately NOT set on the Container App (stays `"local"`,
+    `Settings`'s default value): Azure AI Search is provisioned (RAG,
+    CLAUDE.md) and `AZURE_AI_SEARCH_ENDPOINT`/`_INDEX` are injected with
+    the `Search Index Data Reader` role, but without an indexing pipeline
+    for `data/knowledge_base.json`, a `KB_MODE=azure_search` with an empty
+    index would break acceptance criterion 2 (DECISIONS.md #8); a user can
+    switch manually after indexing.
 
-23. **Documentation detaillee dans `docs/`, en complement (pas en
-    remplacement) de `SPEC.md`/`DECISIONS.md`/`scenario-demo-incident-paiement.md`** :
-    quatre fichiers a portee de lecture distincte -
-    `architecture.md` (composants, contrats `src/models.py`, principes de
-    conception/contraintes non negociables), `how-it-works.md` (mecanique
-    interne - propagation du `SharedContext`, topologie de
-    `build_workflow`, boucle de reflexion, HITL via `request_info`/
-    `response_handler`, protocole SSE des deux phases de `src/api/runs.py`),
-    `deployment.md` (reference de configuration, Docker, `azd`/Bicep,
-    tableau des ressources et roles RBAC) et `demo-guide.md` (deroule
-    pratique CLI/UI avec les valeurs reelles du `StubChatClient` -
-    confiance 0.55 -> 0.88 -, variantes refus humain / Azure OpenAI reel).
-    `SPEC.md` reste la reference des contrats JSON et criteres
-    d'acceptation, `DECISIONS.md` le journal des choix techniques, et
-    `scenario-demo-incident-paiement.md` le script de presentation (message,
-    minutage) : `docs/` y renvoie plutot que de les dupliquer. Linke depuis
-    `README.md` ("Aller plus loin") via `docs/README.md` (index).
+23. **Detailed documentation in `docs/`, complementing (not replacing)
+    `SPEC.md`/`DECISIONS.md`/`scenario-demo-incident-paiement.md`**: four
+    files with distinct reading scopes -
+    `architecture.md` (components, `src/models.py` contracts, design
+    principles/non-negotiable constraints), `how-it-works.md` (internal
+    mechanics - `SharedContext` propagation, `build_workflow` topology,
+    reflection loop, HITL via `request_info`/`response_handler`, the
+    two-phase SSE protocol of `src/api/runs.py`), `deployment.md`
+    (configuration reference, Docker, `azd`/Bicep, resource and RBAC role
+    table) and `demo-guide.md` (practical CLI/UI walkthrough with the real
+    `StubChatClient` values - confidence 0.55 -> 0.92 -, human-rejection /
+    real-Azure-OpenAI variants). `SPEC.md` remains the reference for JSON
+    contracts and acceptance criteria, `DECISIONS.md` the technical-decision
+    log, and `scenario-demo-incident-paiement.md` the presentation script
+    (talking points, timing): `docs/` links to them rather than duplicating
+    them. Linked from `README.md` ("Learn more") via `docs/README.md`
+    (index).
 
-24. **`gpt-4o` `2024-08-06` retire de `infra/resources.bicep` -> `2024-11-20`.**
-    Un `azd up` reel a echoue au provisioning de `openAiChatDeployment` avec
+24. **`gpt-4o` `2024-08-06` retired from `infra/resources.bicep` -> `2024-11-20`.**
+    A real `azd up` failed provisioning `openAiChatDeployment` with
     `ServiceModelDeprecating: The model 'Format:OpenAI,Name:gpt-4o,Version:2024-08-06'
-    is in deprecating state and cannot be used for new deployments`. Verifie
-    via le [Model Retirement Schedule](https://learn.microsoft.com/azure/ai-foundry/openai/concepts/model-retirement-schedule)
-    Microsoft Learn : `gpt-4o` `2024-05-13` et `2024-08-06` sont "Deprecated"
-    (retrait 2026-10-01, plus disponibles pour de nouveaux deploiements),
-    `2024-11-20` est "GA" (retrait 2026-10-01 egalement, remplacement
-    `gpt-5.1`). `gpt-4o-mini` `2024-07-18` reste "GA", non touche par cette
-    erreur, laisse inchange. `docs/deployment.md` §8.11 documente ce mode de
-    panne (et le fait que les versions de modeles Azure OpenAI se deprecient
-    avec le temps independamment du code) ainsi que l'echec `package-api:
-    building image: signal: killed` observe en parallele (OOM probable du
-    build Docker lance en meme temps que le provisioning par `azd up`).
+    is in deprecating state and cannot be used for new deployments`. Verified
+    via the Microsoft Learn [Model Retirement Schedule](https://learn.microsoft.com/azure/ai-foundry/openai/concepts/model-retirement-schedule):
+    `gpt-4o` `2024-05-13` and `2024-08-06` are "Deprecated" (retirement
+    2026-10-01, no longer available for new deployments), `2024-11-20` is
+    "GA" (retirement 2026-10-01 as well, replacement `gpt-5.1`).
+    `gpt-4o-mini` `2024-07-18` stays "GA", unaffected by this error, left
+    unchanged. `docs/deployment.md` §8.11 documents this failure mode (and
+    the fact that Azure OpenAI model versions get deprecated over time
+    independently of the code) as well as the `package-api: building image:
+    signal: killed` failure observed in parallel (likely an OOM from the
+    Docker build running at the same time as `azd up`'s provisioning).
 
-25. **Projet Microsoft Foundry (`accounts/projects`) + instrumentation OTel de
-    l'Agent Framework vers Application Insights : l'orchestration
-    `WorkflowBuilder` est tracee dans Observability > Traces (ai.azure.com).**
-    Cote infra (`infra/resources.bicep`), `openAi` passe de
-    `Microsoft.CognitiveServices/accounts@2024-10-01` (`kind: 'OpenAI'`) a
+25. **Microsoft Foundry project (`accounts/projects`) + Agent Framework OTel
+    instrumentation toward Application Insights: the `WorkflowBuilder`
+    orchestration is traced in Observability > Traces (ai.azure.com).**
+    On the infra side (`infra/resources.bicep`), `openAi` moves from
+    `Microsoft.CognitiveServices/accounts@2024-10-01` (`kind: 'OpenAI'`) to
     `@2025-06-01` (`kind: 'AIServices'`, `properties.allowProjectManagement:
-    true`) : upgrade GA non destructif documente par
+    true`): a non-destructive GA upgrade documented by
     [Upgrade Azure OpenAI to Microsoft Foundry](https://learn.microsoft.com/azure/foundry/how-to/upgrade-azure-openai)
-    (endpoint, cles, role assignments et deploiements `gpt-4o`/`gpt-4o-mini`
-    inchanges ; rollback = revenir a `kind: 'OpenAI'`). Une nouvelle ressource
+    (endpoint, keys, role assignments and `gpt-4o`/`gpt-4o-mini` deployments
+    unchanged; rollback = revert to `kind: 'OpenAI'`). A new resource
     `foundryProject 'Microsoft.CognitiveServices/accounts/projects@2025-06-01'`
-    (`proj-${resourceToken}`, schema verifie via
+    (`proj-${resourceToken}`, schema verified via
     [accounts/projects](https://learn.microsoft.com/azure/templates/microsoft.cognitiveservices/2025-06-01/accounts/projects))
-    expose le "projet" Foundry ; ses sorties `AZURE_FOUNDRY_PROJECT_NAME` /
-    `AZURE_FOUNDRY_PROJECT_ID` sont propagees par `main.bicep`.
+    exposes the Foundry "project"; its `AZURE_FOUNDRY_PROJECT_NAME` /
+    `AZURE_FOUNDRY_PROJECT_ID` outputs are propagated by `main.bicep`.
 
-    Cote code, nouveau module `src/observability.py`
-    (`configure_observability(settings)`, appele au demarrage de
-    `src.main.run_demo` et `src.api.app.create_app`) cable
+    On the code side, a new `src/observability.py` module
+    (`configure_observability(settings)`, called at startup by
+    `src.main.run_demo` and `src.api.app.create_app`) wires
     `configure_azure_monitor(connection_string=...)` (package
-    `azure-monitor-opentelemetry`, ajoute a `pyproject.toml`) puis
-    `enable_instrumentation(enable_sensitive_data=...)`, pattern documente sur
-    [agent_framework.observability](https://learn.microsoft.com/agent-framework/agents/observability).
-    No-op si `APPLICATIONINSIGHTS_CONNECTION_STRING` est absente (mode
-    hors-ligne / `StubChatClient`, aucune dependance reseau ajoutee). Une fois
-    actif, `workflow.run()` (`src.orchestrator.build_workflow`) emet des spans
-    `workflow.run` / `executor.process <id>` couvrant les six agents, la
-    boucle de reflexion `RootCause <-> GatherEvidence` et la porte HITL
-    `HumanApproval`. Nouveau champ `Settings.enable_sensitive_data` (alias
-    `ENABLE_SENSITIVE_DATA`, defaut `false`, documente dans `.env.example`) :
-    capture optionnelle des prompts/reponses dans les traces, reserve au dev
-    (donnees potentiellement sensibles).
+    `azure-monitor-opentelemetry`, added to `pyproject.toml`) then
+    `enable_instrumentation(enable_sensitive_data=...)`, a pattern documented
+    at [agent_framework.observability](https://learn.microsoft.com/agent-framework/agents/observability).
+    No-op if `APPLICATIONINSIGHTS_CONNECTION_STRING` is absent (offline mode
+    / `StubChatClient`, no network dependency added). Once active,
+    `workflow.run()` (`src.orchestrator.build_workflow`) emits
+    `workflow.run` / `executor.process <id>` spans covering the six agents,
+    the `RootCause <-> GatherEvidence` reflection loop, and the
+    `HumanApproval` HITL gate. New `Settings.enable_sensitive_data` field
+    (alias `ENABLE_SENSITIVE_DATA`, default `false`, documented in
+    `.env.example`): optional capture of agent prompts/responses in traces,
+    reserved for dev use (potentially sensitive data).
 
-    La connexion Application Insights <-> projet Foundry (categorie
-    `AppInsights` de `Microsoft.CognitiveServices/accounts/projects/connections`)
-    n'a PAS ete codifiee en Bicep : ce type de ressource n'expose `AppInsights`
-    dans `category` qu'a l'alias "latest" non versionne, absent des versions GA
-    `2025-06-01`/`2025-09-01` verifiees — conformement a CLAUDE.md "ne pas
-    deviner les API". Cette connexion est documentee comme etape manuelle
-    ponctuelle dans `docs/deployment.md` §8.12 (portail ai.azure.com, projet
-    Foundry > Agents > Traces > Connect -> selectionner
-    `appi-${resourceToken}`), conformement au parcours officiel
-    [Trace agent runs](https://learn.microsoft.com/azure/foundry/observability/how-to/trace-agent-setup#connect-application-insights-to-your-foundry-project).
+    The Application Insights <-> Foundry project connection (the
+    `AppInsights` category of
+    `Microsoft.CognitiveServices/accounts/projects/connections`) was NOT
+    codified in Bicep: this resource type only exposes `AppInsights` in
+    `category` at the unversioned "latest" alias, absent from the verified
+    GA versions `2025-06-01`/`2025-09-01` — per CLAUDE.md's "don't guess
+    APIs" rule. This connection is documented as a one-time manual step in
+    `docs/deployment.md` §8.12 (ai.azure.com portal, Foundry project > Agents
+    > Traces > Connect -> select `appi-${resourceToken}`), matching the
+    official [Trace agent runs](https://learn.microsoft.com/azure/foundry/observability/how-to/trace-agent-setup#connect-application-insights-to-your-foundry-project)
+    walkthrough.
 
-26. **`azd up` echoue sur `foundryProject` (`BadRequest: ... To create
+26. **`azd up` fails on `foundryProject` (`BadRequest: ... To create
     projects, you must enable a managed identity on your resource`) ->
-    `identity: SystemAssigned` ajoute a `openAi`.** Un `azd up` reel apres
-    DECISIONS.md #25 a echoue au provisioning de
-    `aoai-${resourceToken}/proj-${resourceToken}` avec
+    `identity: SystemAssigned` added to `openAi`.** A real `azd up` after
+    DECISIONS.md #25 failed provisioning
+    `aoai-${resourceToken}/proj-${resourceToken}` with
     `BadRequest: Unsupported configuration. To create projects, you must
-    enable a managed identity on your resource.` (le message generique "A
-    resource with this name already exists or is in a conflicting state"
-    n'est que le wrapper ARM standard d'un echec de sous-ressource imbriquee,
-    pas un conflit de nommage distinct). Fix : `identity: { type:
-    'SystemAssigned' }` ajoute au compte `openAi`
-    (`Microsoft.CognitiveServices/accounts`) - `accounts/projects` (#25) ne
-    requiert pas d'identite propre, seul le compte parent en a besoin pour
-    gerer ses projets. Ajout non destructif (nouvelle identite systeme sur une
-    ressource existante, aucun impact sur endpoint/cles/role assignments
-    existants). Si `azd up` echoue encore avec "already exists or is in a
-    conflicting state" apres ce fix, verifier dans le portail Azure si
-    `proj-${resourceToken}` existe deja sous `aoai-${resourceToken}` (onglet
-    "Projects") dans un etat `Failed` et le supprimer avant de relancer (un
-    retry `azd up`/`azd provision` simple suffit normalement, PUT ARM etant
-    idempotent).
+    enable a managed identity on your resource.` (the generic "A resource
+    with this name already exists or is in a conflicting state" message is
+    just the standard ARM wrapper for a nested sub-resource failure, not a
+    distinct naming conflict). Fix: `identity: { type: 'SystemAssigned' }`
+    added to the `openAi` account (`Microsoft.CognitiveServices/accounts`) -
+    `accounts/projects` (#25) doesn't require its own identity, only the
+    parent account needs one to manage its projects. Non-destructive addition
+    (new system identity on an existing resource, no impact on the existing
+    endpoint/keys/role assignments). If `azd up` still fails with "already
+    exists or is in a conflicting state" after this fix, check in the Azure
+    portal whether `proj-${resourceToken}` already exists under
+    `aoai-${resourceToken}` (the "Projects" tab) in a `Failed` state and
+    delete it before retrying (a plain `azd up`/`azd provision` retry is
+    normally enough, since ARM PUT is idempotent).
 
-27. **`azd up` echoue encore sur `foundryProject` apres #26 (meme
-    `BadRequest: ... must enable a managed identity on your resource`, sur
-    un environnement neuf) -> `identity: SystemAssigned` ajoute aussi sur le
-    PROJET, pas seulement sur le compte.** Sur un environnement neuf,
-    `aoai-${resourceToken}` est cree avec succes en ~17s (identite incluse,
-    #26), mais `aoai-${resourceToken}/proj-${resourceToken}` echoue 805ms
-    plus tard avec le meme `BadRequest: Unsupported configuration. To create
-    projects, you must enable a managed identity on your resource.` - ce qui
-    invalide l'hypothese de #26 selon laquelle "`accounts/projects` ne
-    requiert pas d'identite propre, seul le compte parent en a besoin".
-    Confirmation via le module de reference Microsoft
-    [`avm/ptn/ai-ml/ai-foundry`](https://github.com/Azure/bicep-registry-modules/blob/main/avm/ptn/ai-ml/ai-foundry/modules/project/main.bicep) :
-    la ressource `Microsoft.CognitiveServices/accounts/projects` y declare
-    elle-meme `identity: { type: 'SystemAssigned' }`, en plus de
-    `managedIdentities: { systemAssigned: true }` sur le compte parent (module
-    `avm/res/cognitive-services/account`). Fix : `identity: { type:
-    'SystemAssigned' }` ajoute a `foundryProject` (en plus de celle sur
-    `openAi`, #26) - type `Identity` valide pour
+27. **`azd up` still fails on `foundryProject` after #26 (same
+    `BadRequest: ... must enable a managed identity on your resource`, on a
+    fresh environment) -> `identity: SystemAssigned` also added on the
+    PROJECT, not just on the account.** On a fresh environment,
+    `aoai-${resourceToken}` is created successfully in ~17s (identity
+    included, #26), but `aoai-${resourceToken}/proj-${resourceToken}` fails
+    805ms later with the same `BadRequest: Unsupported configuration. To
+    create projects, you must enable a managed identity on your resource.` -
+    which invalidates #26's assumption that "`accounts/projects` doesn't
+    require its own identity, only the parent account needs one".
+    Confirmed via the Microsoft reference module
+    [`avm/ptn/ai-ml/ai-foundry`](https://github.com/Azure/bicep-registry-modules/blob/main/avm/ptn/ai-ml/ai-foundry/modules/project/main.bicep):
+    the `Microsoft.CognitiveServices/accounts/projects` resource there
+    itself declares `identity: { type: 'SystemAssigned' }`, in addition to
+    `managedIdentities: { systemAssigned: true }` on the parent account
+    (module `avm/res/cognitive-services/account`). Fix: `identity: { type:
+    'SystemAssigned' }` added to `foundryProject` (in addition to the one on
+    `openAi`, #26) - a valid `Identity` type for
     `accounts/projects@2025-06-01` (`'None' | 'SystemAssigned' |
-    'SystemAssigned, UserAssigned' | 'UserAssigned'`, schema deja verifie en
-    #25). Ajout non destructif (nouvelle identite systeme sur une ressource
-    enfant, aucun impact sur les sorties
-    `AZURE_FOUNDRY_PROJECT_NAME`/`AZURE_FOUNDRY_PROJECT_ID` ni sur les role
-    assignments existants, qui referencent uniquement l'identite du Container
-    App).
+    'SystemAssigned, UserAssigned' | 'UserAssigned'`, schema already verified
+    in #25). Non-destructive addition (new system identity on a child
+    resource, no impact on the `AZURE_FOUNDRY_PROJECT_NAME`/
+    `AZURE_FOUNDRY_PROJECT_ID` outputs or on the existing role assignments,
+    which only reference the Container App's identity).
 
-28. **`azd provision` echoue ensuite sur le compte `openAi`
-    (`aoai-${resourceToken}`, tres rapidement) avec `BadRequest:
+28. **`azd provision` then fails on the `openAi` account
+    (`aoai-${resourceToken}`, very quickly) with `BadRequest:
     PublicNetworkAccess is required for this resouce` [sic] ->
-    `publicNetworkAccess: 'Enabled'` ajoute explicitement aux `properties`
-    de `openAi`.** Apres #27, un retry sur l'environnement de la Defaillance
-    #3 a echoue en 1.665s sur le compte lui-meme (qui avait pourtant reussi
-    en 17s lors de la tentative precedente) avec ce `BadRequest` (toujours
-    sous le meme wrapper generique "already exists or in a conflicting
-    state"). Avec `allowProjectManagement: true` (#25) et un sous-projet
-    `accounts/projects` ayant sa propre identite (#27), Azure exige
-    desormais que `properties.publicNetworkAccess` du compte parent soit
-    explicitement renseigne - il ne peut plus rester implicite/omis.
-    Confirmation : le module de reference
+    `publicNetworkAccess: 'Enabled'` explicitly added to `openAi`'s
+    `properties`.** After #27, a retry on the Failure #3 environment failed
+    in 1.665s on the account itself (which had nonetheless succeeded in 17s
+    on the previous attempt) with this `BadRequest` (still under the same
+    generic "already exists or in a conflicting state" wrapper). With
+    `allowProjectManagement: true` (#25) and an `accounts/projects`
+    sub-project with its own identity (#27), Azure now requires the parent
+    account's `properties.publicNetworkAccess` to be explicitly set - it can
+    no longer stay implicit/omitted. Confirmation: the reference module
     [`avm/res/cognitive-services/account`](https://github.com/Azure/bicep-registry-modules/blob/main/avm/res/cognitive-services/account/main.bicep)
-    (utilise par `avm/ptn/ai-ml/ai-foundry`, #27) ne laisse JAMAIS cette
-    propriete implicite :
+    (used by `avm/ptn/ai-ml/ai-foundry`, #27) NEVER leaves this property
+    implicit:
     `publicNetworkAccess: publicNetworkAccess != null ? publicNetworkAccess
-    : (!empty(networkAcls) ? 'Enabled' : 'Disabled')`. Fix :
-    `publicNetworkAccess: 'Enabled'` ajoute aux `properties` de `openAi`
+    : (!empty(networkAcls) ? 'Enabled' : 'Disabled')`. Fix:
+    `publicNetworkAccess: 'Enabled'` added to `openAi`'s `properties`
     (`Microsoft.CognitiveServices/accounts`, enum `'Disabled' | 'Enabled'`
-    valide pour `@2025-06-01`). `'Enabled'` car ce bicep ne provisionne
-    aucun VNet/private endpoint : le Container App et l'identite dev
-    (`principalId`) accedent a `aoai-${resourceToken}` via son endpoint
-    public, comme c'etait implicitement le cas avant ce changement (le
-    compte avait reussi sans cette propriete lors de la Defaillance #3).
-    Ajout non destructif, ne restreint aucun acces existant.
+    valid for `@2025-06-01`). `'Enabled'` because this bicep provisions no
+    VNet/private endpoint: the Container App and the dev identity
+    (`principalId`) access `aoai-${resourceToken}` via its public endpoint,
+    as was implicitly the case before this change (the account had
+    succeeded without this property during Failure #3). Non-destructive
+    addition, doesn't restrict any existing access.
 
-29. **Rendre les six agents visibles dans l'UI du projet Microsoft Foundry ->
-    script `scripts/register_foundry_agents.py` utilisant
-    `ExternalAgentDefinition`, pas `PromptAgentDefinition`.** Les agents de
-    cette demo s'executent hors de Foundry, directement contre Azure OpenAI
-    via le Microsoft Agent Framework (`AzureOpenAIStructuredChatClient`,
-    `src/agents/clients.py`) - il n'y a pas d'orchestration "native Foundry"
-    a la place. `PromptAgentDefinition` suppose que Foundry heberge et execute
-    l'agent (prompt + modele geres cote Foundry) : inadapte ici, et aurait
-    introduit une deuxieme source de verite pour les instructions/le modele
-    de chaque agent. `ExternalAgentDefinition` (`azure-ai-projects`,
-    `discriminator="external"`) correspond exactement au cas : "Represents a
+29. **Make the six agents visible in the Microsoft Foundry project's UI ->
+    `scripts/register_foundry_agents.py` script using
+    `ExternalAgentDefinition`, not `PromptAgentDefinition`.** This demo's
+    agents run outside Foundry, directly against Azure OpenAI via the
+    Microsoft Agent Framework (`AzureOpenAIStructuredChatClient`,
+    `src/agents/clients.py`) - there's no "native Foundry" orchestration in
+    its place. `PromptAgentDefinition` assumes Foundry hosts and runs the
+    agent (prompt + model managed Foundry-side): unsuited here, and would
+    have introduced a second source of truth for each agent's
+    instructions/model. `ExternalAgentDefinition` (`azure-ai-projects`,
+    `discriminator="external"`) matches the case exactly: "Represents a
     third-party agent hosted outside Foundry (...) Registration is
-    metadata-only" - confirme par introspection du SDK installe
-    (`inspect.getsource`), conformement a la consigne "ne pas deviner les
-    API". Aucune ressource de calcul n'est creee ; seule l'entree apparait
-    dans l'onglet Agents du projet.
+    metadata-only" - confirmed by introspecting the installed SDK
+    (`inspect.getsource`), per the "don't guess APIs" rule. No compute
+    resource is created; only the entry appears in the project's Agents
+    tab.
 
-    Precondition corrigee au passage : `AgentTelemetryLayer` (package
-    `agent_framework`, instrumentation OTel) source l'attribut de span
-    `gen_ai.agent.id` depuis `Agent.id`, pas `Agent.name` - confirme par
-    lecture du source installe. Sans `id` explicite,
-    `BaseChatClient.as_agent(...)` genere un `uuid4()` aleatoire a chaque
-    redemarrage du processus, qui ne correspondrait alors jamais a l'`id`
-    statique enregistre dans Foundry (le nom de l'agent, ex. `RootCause`) -
-    les traces (#25, docs/deployment.md §8.12) ne se seraient jamais
-    rattachees a l'enregistrement External Agent. Fix : `id=agent_name`
-    ajoute a l'appel `as_agent(...)` dans
-    `AzureOpenAIStructuredChatClient.get_structured_response`
-    (`src/agents/clients.py`) - meme valeur que `agent_name` deja utilise
-    comme `name=`, donc aucun changement de comportement visible ailleurs.
+    A precondition fixed along the way: `AgentTelemetryLayer` (package
+    `agent_framework`, OTel instrumentation) sources the `gen_ai.agent.id`
+    span attribute from `Agent.id`, not `Agent.name` - confirmed by reading
+    the installed source. Without an explicit `id`,
+    `BaseChatClient.as_agent(...)` generates a random `uuid4()` on every
+    process restart, which would then never match the static `id` registered
+    in Foundry (the agent's name, e.g. `RootCause`) - the traces (#25,
+    docs/deployment.md §8.12) would never have attached to the External
+    Agent registration. Fix: `id=agent_name` added to the `as_agent(...)`
+    call in `AzureOpenAIStructuredChatClient.get_structured_response`
+    (`src/agents/clients.py`) - same value as the `agent_name` already used
+    as `name=`, so no visible behavior change elsewhere.
 
-    L'enregistrement (`AIProjectClient(..., allow_preview=True)`,
+    Registration (`AIProjectClient(..., allow_preview=True)`,
     `agents.create_version(agent_name=..., definition=ExternalAgentDefinition())`)
-    est une fonctionnalite **preview** d'`azure-ai-projects` >=2.2.0 - a
-    documenter comme telle (docs/deployment.md §8.13), l'API pouvant changer
-    avant la GA. Dependance ajoutee dans un groupe optionnel distinct
-    `[foundry]` (`pyproject.toml`), separe de `[dev]` : sans rapport avec
-    l'execution ou les tests de la demo elle-meme, seulement avec ce script
-    d'enregistrement ponctuel.
+    is a **preview** feature of `azure-ai-projects` >=2.2.0 - documented as
+    such (docs/deployment.md §8.13), since the API may change before GA.
+    Dependency added in a separate optional group `[foundry]`
+    (`pyproject.toml`), apart from `[dev]`: unrelated to running or testing
+    the demo itself, only to this one-off registration script.
 
-    Endpoint du projet (`AZURE_FOUNDRY_PROJECT_ENDPOINT`, nouveau) construit
-    par concatenation de chaines dans `infra/resources.bicep`
+    The project endpoint (`AZURE_FOUNDRY_PROJECT_ENDPOINT`, new) is built by
+    string concatenation in `infra/resources.bicep`
     (`'https://${openAi.name}.services.ai.azure.com/api/projects/${foundryProject.name}'`,
-    forme documentee par `AIProjectClient`) plutot que lu sur une propriete
-    de ressource : confirme via la doc Microsoft Learn que
+    a form documented by `AIProjectClient`) rather than read from a resource
+    property: confirmed via Microsoft Learn docs that
     `Microsoft.CognitiveServices/accounts/projects`
-    (`ProjectProperties`) n'expose que `description`/`displayName`, aucune
-    propriete d'endpoint. `openAi.name` == `properties.customSubDomainName`
-    (les deux fixes a `aoai-${resourceToken}` dans la ressource existante,
-    #21) : pas de lookup manuel necessaire, recupere comme les autres
-    sorties Bicep via `azd env get-values >> .env` (deja le flux dev-local
-    documente, §8.7).
+    (`ProjectProperties`) only exposes `description`/`displayName`, no
+    endpoint property. `openAi.name` == `properties.customSubDomainName`
+    (both already fixed on the existing `aoai-${resourceToken}` resource,
+    #21): no manual lookup needed, fetched like the other Bicep outputs via
+    `azd env get-values >> .env` (already the documented local-dev flow,
+    §8.7).
 
-    Pas d'enregistrement separe pour le "workflow" (`WorkflowBuilder`, la
-    boucle de reflexion, la porte HITL) : Foundry n'a pas de ressource
-    "workflow" a enregistrer independamment des agents qui le composent, et
-    la timeline d'execution complete (executors, boucle, HITL) est deja
-    entierement visible via les traces OTel existantes (#25,
-    docs/deployment.md §8.12) une fois Application Insights connecte -
-    aucun gap a combler ici.
+    No separate registration for the "workflow" (`WorkflowBuilder`, the
+    reflection loop, the HITL gate): Foundry has no "workflow" resource to
+    register independently of the agents that make it up, and the full
+    execution timeline (executors, loop, HITL) is already entirely visible
+    via the existing OTel traces (#25, docs/deployment.md §8.12) once
+    Application Insights is connected - no gap to fill here.
 
-30. **Correction de #29 : Foundry a bien une ressource "workflow"
-    enregistrable (`WorkflowAgentDefinition`) -> script
-    `scripts/register_foundry_workflow.py` + CSDL ecrit a la main
-    `scripts/foundry_workflow.yaml`.** Le dernier paragraphe de #29 affirmait
-    qu'aucune ressource "workflow" distincte n'existait cote Foundry ;
-    relecture de la doc officielle "Declarative Workflows" (Microsoft Agent
-    Framework) et introspection du SDK installe (`azure-ai-projects==2.2.0`,
-    `_models.py`) montrent le contraire : `WorkflowAgentDefinition` existe
-    bien (`discriminator="workflow"`, champ `workflow: str` = "The CSDL YAML
-    definition of the workflow"), enregistrable via le meme
-    `agents.create_version(agent_name=..., definition=...)` que les six
-    agents. Conserve #29 tel quel (registre historique) plutot que de le
-    corriger sur place.
+30. **Fix to #29: Foundry does have a registerable "workflow" resource
+    (`WorkflowAgentDefinition`) -> `scripts/register_foundry_workflow.py`
+    script + hand-written CSDL `scripts/foundry_workflow.yaml`.** The last
+    paragraph of #29 claimed that no distinct "workflow" resource existed on
+    the Foundry side; re-reading the official "Declarative Workflows" docs
+    (Microsoft Agent Framework) and introspecting the installed SDK
+    (`azure-ai-projects==2.2.0`, `_models.py`) show the opposite:
+    `WorkflowAgentDefinition` does exist (`discriminator="workflow"`, field
+    `workflow: str` = "The CSDL YAML definition of the workflow"),
+    registerable via the same `agents.create_version(agent_name=...,
+    definition=...)` as the six agents. #29 is kept as-is (historical
+    record) rather than corrected in place.
 
-    Aucun exportateur n'existe pour generer ce CSDL depuis le
-    `WorkflowBuilder` Python (ni dans `agent-framework`, ni cote Foundry) :
-    le YAML est donc ecrit a la main, en miroir de la topologie reelle de
-    `src/orchestrator/graph.py` (sequence des six agents, boucle
-    `RootCause <-> GatherEvidence` bornee par `loopCount`/`maxReflectionLoops`,
-    porte HITL `Question`/`approved`) - valeurs de seuil/boucle recopiees en
-    dur (`confidenceThreshold: 0.75`, `maxReflectionLoops: 2`) car ce workflow
-    autonome cote Foundry n'a pas acces a `src/config.py`/`.env`. Champs
-    Pydantic (`confiance`, `preuves_manquantes`, `texte`, etc.) repris
-    exactement de `src/models.py` dans les expressions Power Fx du YAML.
-    Schema CSDL (kinds d'action, boucles via `GotoAction`+`If`, porte HITL via
-    `Question`) confirme par lecture de la doc officielle plutot que devine,
-    conformement a la consigne "ne pas deviner les API" - cf. en-tete de
-    `foundry_workflow.yaml` pour le detail des choix (forme trigger-based du
-    CSDL, espace de noms `Local.*`, fonctions Power Fx utilisees).
+    No exporter exists to generate this CSDL from the Python
+    `WorkflowBuilder` (neither in `agent-framework` nor on the Foundry side):
+    the YAML is therefore hand-written, mirroring the actual topology of
+    `src/orchestrator/graph.py` (the six-agent sequence, the
+    `RootCause <-> GatherEvidence` loop bounded by
+    `loopCount`/`maxReflectionLoops`, the `Question`/`approved` HITL gate) -
+    threshold/loop values are hardcoded (`confidenceThreshold: 0.75`,
+    `maxReflectionLoops: 2`) because this standalone Foundry-side workflow
+    has no access to `src/config.py`/`.env`. Pydantic fields (`confiance`,
+    `preuves_manquantes`, `texte`, etc.) are taken verbatim from
+    `src/models.py` into the YAML's Power Fx expressions. The CSDL schema
+    (action kinds, loops via `GotoAction`+`If`, the HITL gate via
+    `Question`) was confirmed by reading the official docs rather than
+    guessed, per the "don't guess APIs" rule - see the header of
+    `foundry_workflow.yaml` for details on the choices made (trigger-based
+    CSDL shape, `Local.*` namespace, Power Fx functions used).
 
-    Header `Foundry-Features: WorkflowAgents=V1Preview` (fonctionnalite
-    preview) : confirme par lecture du source installe
-    (`azure/ai/projects/operations/_patch_agents.py`) que le SDK l'ajoute
-    automatiquement dans `create_version` dans le cas ou
-    `AIProjectClient(..., allow_preview=True)` est utilise - le meme flag
-    `allow_preview=True` deja en place pour #29, aucun code supplementaire
-    necessaire.
+    `Foundry-Features: WorkflowAgents=V1Preview` header (preview feature):
+    confirmed by reading the installed source
+    (`azure/ai/projects/operations/_patch_agents.py`) that the SDK adds it
+    automatically in `create_version` when
+    `AIProjectClient(..., allow_preview=True)` is used - the same
+    `allow_preview=True` flag already in place for #29, no extra code
+    needed.
 
-    Limite assumee, documentee dans l'en-tete de `foundry_workflow.yaml` et
-    docs/deployment.md §8.14 : ce CSDL ne s'execute pas reellement (les six
-    `InvokeAzureAgent` referencent des `ExternalAgentDefinition` - entrees
-    metadata-only sans modele/instructions cote Foundry, cf. #29), donc
-    "Run Workflow" dans le portail echouera probablement a la premiere
-    invocation d'agent. Sa valeur est l'affichage de la topologie
-    (noeuds/aretes/conditions) dans le canevas visuel, pas l'execution ;
-    l'execution reelle reste 100% `src/orchestrator/graph.py` + `executors.py`,
-    observable via les traces OTel (#25, docs/deployment.md §8.12). A
-    resynchroniser a la main si `graph.py` change.
+    An accepted limitation, documented in `foundry_workflow.yaml`'s header
+    and docs/deployment.md §8.14: this CSDL doesn't actually execute (the
+    six `InvokeAzureAgent` actions reference `ExternalAgentDefinition`
+    entries - metadata-only, with no model/instructions on the Foundry side,
+    cf. #29), so clicking "Run Workflow" in the portal will likely fail on
+    the very first agent invocation. Its value is displaying the topology
+    (nodes/edges/conditions) in the visual canvas, not execution; the actual
+    execution remains 100% `src/orchestrator/graph.py` + `executors.py`,
+    observable via the OTel traces (#25, docs/deployment.md §8.12). Must be
+    resynced by hand if `graph.py` changes.
 
-    Addendum (premiere execution reelle du script contre un projet Foundry) :
-    l'action `SetMultipleVariables` (utilisee pour initialiser l'etat de la
-    boucle) suit pourtant exactement la forme documentee (`variables:` =
-    carte chemin->valeur, seule propriete requise), mais l'API Foundry
-    (preview) la rejette quand meme a l'enregistrement avec
-    `invalid_payload: Missing required properties for element ...
-    (SetMultipleVariables)`. La doc officielle n'est donc pas fiable a 100%
-    pour cette fonctionnalite preview. Fix : remplace par trois actions
-    `SetVariable` distinctes (une par variable), forme la plus simple et deja
-    prouvee fonctionnelle ailleurs dans le meme fichier, plutot que de deviner
-    une autre forme pour `SetMultipleVariables`. Implique qu'un residu de
-    risque subsiste sur les autres kinds d'action utilises ici (`If`,
-    `GotoAction`, `Question`, `InvokeAzureAgent`, `SendActivity`,
-    `EndWorkflow`) : leur forme suit la doc et n'a pas (encore) declenche
-    d'erreur a l'enregistrement, mais seul un appel reel contre un projet
-    Foundry fait foi pour une fonctionnalite preview - a corriger au cas par
-    cas si une nouvelle erreur `invalid_payload` apparait.
+    Addendum (first real run of the script against a Foundry project): the
+    `SetMultipleVariables` action (used to initialize the loop state) does
+    follow the documented shape exactly (`variables:` = a path->value map,
+    the only required property), yet the (preview) Foundry API rejects it
+    at registration anyway with `invalid_payload: Missing required
+    properties for element ... (SetMultipleVariables)`. The official docs
+    are therefore not 100% reliable for this preview feature. Fix: replaced
+    with three separate `SetVariable` actions (one per variable), the
+    simplest shape, already proven to work elsewhere in the same file,
+    rather than guessing another shape for `SetMultipleVariables`. This
+    implies some residual risk remains on the other action kinds used here
+    (`If`, `GotoAction`, `Question`, `InvokeAzureAgent`, `SendActivity`,
+    `EndWorkflow`): their shape follows the docs and hasn't (yet) triggered
+    a registration error, but only a real call against a Foundry project is
+    authoritative for a preview feature - to be fixed case by case if a new
+    `invalid_payload` error appears.
 
-    Addendum 2 (deuxieme execution reelle, apres correction de l'addendum
-    1) : risque annonce confirme - l'action `Question` (`human_approval_gate`,
-    la porte HITL elle-meme) est rejetee a son tour avec
-    `invalid_payload: Missing required properties for element:
-    human_approval_gate (Question)`, alors que sa forme (`question.text` /
-    `variable` / `default`) correspondait deja exactement au tableau de
-    proprietes de la doc officielle "Declarative Workflows". La doc Microsoft
-    Learn (page tutoriel) n'est donc pas fiable pour ce kind d'action non
-    plus. Source plus fiable trouvee : les exemples reels et executables du
-    depot `microsoft/agent-framework` lui-meme
+    Addendum 2 (second real run, after fixing addendum 1): the announced
+    risk was confirmed - the `Question` action (`human_approval_gate`, the
+    HITL gate itself) is in turn rejected with `invalid_payload: Missing
+    required properties for element: human_approval_gate (Question)`, even
+    though its shape (`question.text` / `variable` / `default`) already
+    matched the official "Declarative Workflows" docs' property table
+    exactly. The Microsoft Learn docs (tutorial page) are therefore not
+    reliable for this action kind either. A more reliable source was found:
+    the real, executable examples from the `microsoft/agent-framework`
+    repository itself
     (`dotnet/samples/03-workflows/Declarative/ConfirmInput/ConfirmInput.yaml`),
-    dans la meme enveloppe `kind: Workflow` / `trigger: OnConversationStart`
-    que ce fichier, montrent une forme structurellement differente pour
-    `Question` : `property` (pas `variable`) pour la variable de sortie,
-    `prompt.kind: Message` + `prompt.text` (liste, pas `question.text`
-    scalaire) pour le message, et `entity` (obligatoire, absent de la doc
-    tutoriel) pour typer la reponse attendue. Fix : forme alignee sur cet
-    exemple confirme, avec `entity.kind: StringPrebuiltEntity` plutot qu'une
-    variante booleenne (`BooleanPrebuiltEntity` ou autre) qui n'a pu etre
-    confirmee dans aucune source - choix qui preserve aussi la comparaison
-    `=Local.approved = "yes"` (chaine) deja utilisee par `check_approval` en
-    aval, sans la faire dependre d'un type booleen non verifie. `displayName`
-    est conserve malgre son absence des exemples officiels : deja confirme
-    accepte par l'API live pour les autres kinds d'action de ce fichier
-    (`SetVariable`, `If`, `InvokeAzureAgent`, `SendActivity`, `GotoAction`).
+    under the same `kind: Workflow` / `trigger: OnConversationStart`
+    envelope as this file, show a structurally different shape for
+    `Question`: `property` (not `variable`) for the output variable,
+    `prompt.kind: Message` + `prompt.text` (a list, not a scalar
+    `question.text`) for the message, and `entity` (required, absent from
+    the tutorial docs) to type the expected answer. Fix: shape aligned with
+    this confirmed example, using `entity.kind: StringPrebuiltEntity` rather
+    than a boolean variant (`BooleanPrebuiltEntity` or other) that couldn't
+    be confirmed in any source - a choice that also preserves the
+    `=Local.approved = "yes"` (string) comparison already used downstream by
+    `check_approval`, without making it depend on an unverified boolean
+    type. `displayName` is kept despite its absence from the official
+    examples: already confirmed accepted by the live API for the other
+    action kinds in this file (`SetVariable`, `If`, `InvokeAzureAgent`,
+    `SendActivity`, `GotoAction`).
 
-    Lecon generale : pour cette fonctionnalite preview, la doc prose
-    (tutoriel Agent Framework) peut diverger de ce que l'API Foundry valide
-    reellement, mais les echantillons YAML executables du depot
-    `microsoft/agent-framework` (dossier `dotnet/samples/*/Declarative/`)
-    s'en sont averes une source plus fiable jusqu'ici. Risque residuel
-    desormais limite aux actions situees apres `human_approval_gate` et pas
-    encore exercees par un enregistrement reel : les `InvokeAzureAgent`
-    (Remediation, Summary) et `SendActivity` imbriques dans `check_approval`,
-    et `EndWorkflow` - a corriger au cas par cas si une nouvelle erreur
-    `invalid_payload` apparait.
+    General lesson: for this preview feature, the prose docs (Agent
+    Framework tutorial) can diverge from what the Foundry API actually
+    validates, but the executable YAML samples from the
+    `microsoft/agent-framework` repository (the
+    `dotnet/samples/*/Declarative/` folder) have proven a more reliable
+    source so far. Residual risk is now limited to the actions located
+    after `human_approval_gate` that haven't yet been exercised by a real
+    registration attempt: the `InvokeAzureAgent` (Remediation, Summary) and
+    `SendActivity` actions nested inside `check_approval`, and
+    `EndWorkflow` - to be fixed case by case if a new `invalid_payload`
+    error appears.

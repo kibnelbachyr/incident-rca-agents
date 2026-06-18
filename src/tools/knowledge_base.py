@@ -1,17 +1,17 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Outil de recherche dans la base de connaissances (RAG) d'incidents passes.
+"""Search tool over the knowledge base (RAG) of past incidents.
 
-Deux implementations partagent l'interface `KnowledgeBase` :
+Two implementations share the `KnowledgeBase` interface:
 
-- `LocalKnowledgeBase` : lit `data/knowledge_base.json` (mode `KB_MODE=local`,
-  par defaut pour la demo hors-ligne).
-- `AzureAISearchKnowledgeBase` : interroge un index Azure AI Search (mode
-  `KB_MODE=azure_search`, deploiement Azure - voir SPEC.md section 7).
+- `LocalKnowledgeBase`: reads `data/knowledge_base.json` (mode `KB_MODE=local`,
+  default for the offline demo).
+- `AzureAISearchKnowledgeBase`: queries an Azure AI Search index (mode
+  `KB_MODE=azure_search`, Azure deployment - see SPEC.md section 7).
 
-`get_knowledge_base(settings)` choisit l'implementation selon `settings.kb_mode`.
-L'agent `KBSearch` (src/agents/kb_search.py) consomme cette interface puis
-fait confirmer/formater les resultats par le client de chat structure.
+`get_knowledge_base(settings)` picks the implementation based on `settings.kb_mode`.
+The `KBSearch` agent (src/agents/kb_search.py) consumes this interface and then
+has the results confirmed/formatted by the structured chat client.
 """
 
 from __future__ import annotations
@@ -25,18 +25,19 @@ from src.models import Incident, KBMatch
 
 
 class KnowledgeBase(Protocol):
-    """Interface commune : recherche de precedents pour un incident donne."""
+    """Common interface: searches for precedents for a given incident."""
 
     async def search(self, incident: Incident, *, top_k: int = 2) -> list[KBMatch]: ...
 
 
 class LocalKnowledgeBase:
-    """Recherche par similarite lexicale sur le fichier JSON local.
+    """Lexical similarity search over the local JSON file.
 
-    Le score de similarite est un indice de Jaccard entre le vocabulaire de
-    l'incident courant (services + symptomes) et celui de chaque precedent
-    (services + symptomes + tags). Avec seulement deux precedents dans
-    `knowledge_base.json` et `top_k=2`, les deux sont toujours retournes.
+    The similarity score is a Jaccard index between the vocabulary of the
+    current incident (services + symptomes) and that of each precedent
+    (services + symptomes + tags). `knowledge_base.json` holds four past
+    incidents; with `top_k=2`, only the two highest-scoring matches are
+    returned.
     """
 
     def __init__(self, path: Path) -> None:
@@ -60,7 +61,7 @@ class LocalKnowledgeBase:
 
 
 def _vocabulary(phrases: list[str]) -> set[str]:
-    """Decoupe une liste de phrases en un ensemble de mots-cles normalises."""
+    """Splits a list of phrases into a set of normalized keywords."""
 
     words: set[str] = set()
     for phrase in phrases:
@@ -80,7 +81,7 @@ def _jaccard(a: set[str], b: set[str]) -> float:
 
 
 class AzureAISearchKnowledgeBase:
-    """Recherche dans un index Azure AI Search (mode deploye, `KB_MODE=azure_search`)."""
+    """Search over an Azure AI Search index (deployed mode, `KB_MODE=azure_search`)."""
 
     def __init__(self, *, endpoint: str, index_name: str, credential: object) -> None:
         from azure.search.documents.aio import SearchClient
@@ -105,13 +106,13 @@ class AzureAISearchKnowledgeBase:
 
 
 def get_knowledge_base(settings: Settings) -> KnowledgeBase:
-    """Choisit l'implementation de la base de connaissances selon `KB_MODE`."""
+    """Picks the knowledge base implementation based on `KB_MODE`."""
 
     if settings.kb_mode == "local":
         return LocalKnowledgeBase(settings.knowledge_base_path)
 
     if settings.azure_ai_search_endpoint is None:
-        raise ValueError("AZURE_AI_SEARCH_ENDPOINT doit etre defini quand KB_MODE=azure_search")
+        raise ValueError("AZURE_AI_SEARCH_ENDPOINT must be set when KB_MODE=azure_search")
 
     from azure.identity import AzureCliCredential, DefaultAzureCredential
 

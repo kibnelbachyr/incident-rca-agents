@@ -1,51 +1,51 @@
-# SPEC.md — Spécification détaillée
+# SPEC.md — Detailed specification
 
-Démo : analyse et debug d'incidents de paiement par agents IA orchestrés, sur
-Microsoft Agent Framework + Azure. Lire `CLAUDE.md` d'abord (stack, conventions,
-contraintes). Le déroulé de présentation est dans `scenario-demo-incident-paiement.md`.
+Demo: analysis and debugging of payment incidents by orchestrated AI agents, on
+Microsoft Agent Framework + Azure. Read `CLAUDE.md` first (stack, conventions,
+constraints). The presentation flow is in `scenario-demo-incident-paiement.md`.
 
 ---
 
-## 1. Objectif & périmètre
+## 1. Goal & scope
 
-**But.** À partir de logs bruts d'un système de paiement, produire automatiquement :
-un incident structuré, des précédents similaires, une hypothèse de cause racine avec
-confiance, un plan de remédiation (proposé, validé par un humain), et un rapport final.
+**Goal.** Starting from raw logs of a payment system, automatically produce:
+a structured incident, similar past incidents, a root-cause hypothesis with
+confidence, a remediation plan (proposed, validated by a human), and a final report.
 
-**Hors périmètre.** Aucune action n'est exécutée sur un vrai système ; la remédiation
-est un plan affiché. Pas d'ingestion temps réel ; on injecte un fichier de logs.
+**Out of scope.** No action is executed on a real system; the remediation
+is a displayed plan. No real-time ingestion; a log file is injected.
 
 ---
 
 ## 2. Architecture
 
-Six agents spécialisés, un orchestrateur, une base de connaissances comme ressource.
+Six specialized agents, an orchestrator, a knowledge base as a resource.
 
-| # | Agent | Rôle | Modèle suggéré |
+| # | Agent | Role | Suggested model |
 |---|-------|------|----------------|
-| 1 | `LogAnalyzer` | Normalise les logs, détecte anomalies + timeline | léger (ex. GPT-4o-mini) |
-| 2 | `IncidentExtractor` | Produit l'objet incident structuré | léger |
-| 3 | `KBSearch` | Interroge la base de connaissances (RAG) | léger |
-| 4 | `RootCause` | Hypothèse de cause racine + score de confiance | fort (GPT-4o) |
-| 5 | `Remediation` | Plan de mitigation + correctif (derrière HITL) | fort |
-| 6 | `Summary` | Rédige le rapport d'incident final | léger |
+| 1 | `LogAnalyzer` | Normalizes logs, detects anomalies + timeline | light (e.g. GPT-4o-mini) |
+| 2 | `IncidentExtractor` | Produces the structured incident object | light |
+| 3 | `KBSearch` | Queries the knowledge base (RAG) | light |
+| 4 | `RootCause` | Root-cause hypothesis + confidence score | strong (GPT-4o) |
+| 5 | `Remediation` | Mitigation plan + fix (behind HITL) | strong |
+| 6 | `Summary` | Writes the final incident report | light |
 
-L'**orchestrateur** détient le contexte partagé (l'objet incident qui grossit),
-séquence les agents, applique la boucle de réflexion et la porte de validation.
-Les agents sont sans état : ils reçoivent le contexte, font leur tâche, renvoient
-un JSON. Ils ne communiquent jamais entre eux.
+The **orchestrator** holds the shared context (the incident object, which grows),
+sequences the agents, applies the reflection loop and the validation gate.
+The agents are stateless: they receive the context, perform their task, return
+JSON. They never communicate with each other directly.
 
 ---
 
-## 3. Stack & dépendances
+## 3. Stack & dependencies
 
-- `agent-framework` (préversion) — `WorkflowBuilder`, `ChatAgent`, HITL request/response.
-- `agent_framework.azure.AzureOpenAIChatClient` — client modèle.
-- `azure-identity` — `AzureCliCredential` (local) / `DefaultAzureCredential` (déployé).
-- `azure-search-documents` — accès Azure AI Search (agent KB en mode déployé).
-- `pydantic` — validation des contrats I/O.
+- `agent-framework` (pre-release) — `WorkflowBuilder`, `ChatAgent`, HITL request/response.
+- `agent_framework.azure.AzureOpenAIChatClient` — model client.
+- `azure-identity` — `AzureCliCredential` (local) / `DefaultAzureCredential` (deployed).
+- `azure-search-documents` — Azure AI Search access (KB agent in deployed mode).
+- `pydantic` — I/O contract validation.
 
-Création d'un agent (pattern officiel, à adapter par agent) :
+Creating an agent (official pattern, to be adapted per agent):
 
 ```python
 import os
@@ -60,35 +60,35 @@ client = AzureOpenAIChatClient(
 
 root_cause_agent = client.create_agent(
     name="RootCause",
-    instructions=ROOT_CAUSE_INSTRUCTIONS,  # voir §4
+    instructions=ROOT_CAUSE_INSTRUCTIONS,  # see §4
     temperature=0.2,
 )
 ```
 
 ---
 
-## 4. Contrats de données entre agents
+## 4. Data contracts between agents
 
-Tous les agents renvoient **uniquement** du JSON valide (pas de Markdown autour).
-Les schémas sont validés par pydantic dans `src/models.py`.
+All agents return **only** valid JSON (no Markdown wrapping it).
+Schemas are validated by pydantic in `src/models.py`.
 
 **1 — LogAnalyzer** → `LogAnalysis`
 ```json
 {
   "timeline": [{"time": "14:00:11", "event": "deploy payment-api v2.4.1"}],
-  "anomalies": ["pool saturé à 14:23", "taux d'erreur 0,2% → 38%"],
-  "correlated_events": ["déploiement v2.4.1 ~20 min avant la saturation"]
+  "anomalies": ["pool saturated at 14:23", "error rate 0.2% → 38%"],
+  "correlated_events": ["deployment v2.4.1 ~20 min before the saturation"]
 }
 ```
 
 **2 — IncidentExtractor** → `Incident`
 ```json
 {
-  "titre": "Pic d'échecs de paiement",
+  "titre": "Spike in payment failures",
   "severite": "SEV-1",
   "services": ["payment-api", "db-pool"],
-  "fenetre": "14:23 → en cours",
-  "symptomes": ["échec de persistance des transactions", "pool saturé", "retry storm"]
+  "fenetre": "14:23 → ongoing",
+  "symptomes": ["transaction persistence failure", "pool saturated", "retry storm"]
 }
 ```
 
@@ -96,8 +96,8 @@ Les schémas sont validés par pydantic dans `src/models.py`.
 ```json
 {
   "matches": [
-    {"id": "INC-204", "similarite": 0.82, "resolution": "rollback + pool à 40"},
-    {"id": "INC-187", "similarite": 0.61, "resolution": "circuit breaker Stripe"}
+    {"id": "INC-204", "similarite": 0.98, "resolution": "rollback + pool to 40"},
+    {"id": "INC-187", "similarite": 0.52, "resolution": "Stripe circuit breaker"}
   ]
 }
 ```
@@ -105,146 +105,151 @@ Les schémas sont validés par pydantic dans `src/models.py`.
 **4 — RootCause** → `RootCauseHypothesis`
 ```json
 {
-  "cause": "Le déploiement v2.4.1 a réduit max_pool_size de 40 à 20",
-  "raisonnement": "La saturation suit le déploiement ; latence Stripe dans la normale",
-  "confiance": 0.88,
+  "cause": "The v2.4.1 deployment reduced max_pool_size from 40 to 20",
+  "raisonnement": "The saturation follows the deployment; Stripe latency is within normal range",
+  "confiance": 0.92,
   "preuves_manquantes": []
 }
 ```
-- `confiance` ∈ [0,1]. Si `< CONFIDENCE_THRESHOLD`, remplir `preuves_manquantes`
-  (ce que l'orchestrateur doit aller chercher au prochain tour).
+- `confiance` ∈ [0,1]. If `< CONFIDENCE_THRESHOLD`, fill in `preuves_manquantes`
+  (what the orchestrator must go gather on the next turn).
 
-**5 — Remediation** → `RemediationPlan` (produit après approbation humaine)
+**5 — Remediation** → `RemediationPlan` (produced after human approval)
 ```json
 {
-  "immediat": ["rollback v2.4.1 ou remonter max_pool_size à 40"],
-  "court_terme": ["timeout d'acquisition", "alerte à 80% du pool"],
-  "long_terme": ["gate de revue sur les changements de config infra"]
+  "immediat": ["rollback v2.4.1 or raise max_pool_size back to 40"],
+  "court_terme": ["acquisition timeout", "alert at 80% pool usage"],
+  "long_terme": ["review gate on infra config changes"]
 }
 ```
 
-**6 — Summary** → `IncidentReport` (texte formaté + champs clés ; voir scénario §5).
+**6 — Summary** → `IncidentReport` (formatted text + key fields; see scenario §5).
 
 ---
 
-## 5. Comportement d'orchestration
+## 5. Orchestration behavior
 
-Implémenter avec `WorkflowBuilder` (graphe d'exécuteurs). Chaque exécuteur enveloppe
-un agent et met à jour le contexte partagé.
+Implement with `WorkflowBuilder` (executor graph). Each executor wraps
+an agent and updates the shared context.
 
-Topologie :
+Topology:
 
 ```
-logs → LogAnalyzer → IncidentExtractor → KBSearch → RootCause → [décision confiance]
+logs → LogAnalyzer → IncidentExtractor → KBSearch → RootCause → [confidence decision]
                                                           ▲                │
-                              (preuves manquantes ciblées)│                │ confiance ≥ seuil
+                              (targeted missing evidence) │                │ confidence ≥ threshold
                                           GatherEvidence ──┘                ▼
-                                                              [HITL: validation humaine]
-                                                                           │ approuvé
+                                                              [HITL: human validation]
+                                                                           │ approved
                                                                            ▼
-                                                              Remediation → Summary → rapport
+                                                              Remediation → Summary → report
 ```
 
-**Boucle de réflexion (arête conditionnelle après `RootCause`)**
-- Si `confiance < CONFIDENCE_THRESHOLD` ET `loop_count < MAX_REFLECTION_LOOPS` :
-  router vers `GatherEvidence` (re-sollicite `LogAnalyzer` sur les `preuves_manquantes`
-  et/ou `KBSearch`), incrémenter `loop_count`, repasser dans `RootCause`.
-- Sinon : continuer vers la porte de validation.
-- La boucle est **bornée** par `MAX_REFLECTION_LOOPS` (jamais infinie).
+**Reflection loop (conditional edge after `RootCause`)**
+- If `confiance < CONFIDENCE_THRESHOLD` AND `loop_count < MAX_REFLECTION_LOOPS`:
+  route to `GatherEvidence` (re-invokes `LogAnalyzer` on the `preuves_manquantes`
+  and/or `KBSearch`), increment `loop_count`, go back into `RootCause`.
+- Otherwise: continue to the validation gate.
+- The loop is **bounded** by `MAX_REFLECTION_LOOPS` (never infinite).
 
-**Porte de validation (HITL avant remédiation)**
-- L'outil qui déclenche la remédiation est marqué `@tool(approval_mode="always_require")`,
-  ou bien un nœud `ctx.request_info()` émet un `RequestInfoEvent` que l'appelant
-  doit approuver avant de continuer.
-- Tant que l'humain n'a pas approuvé, le workflow reste en pause.
+**Validation gate (HITL before remediation)**
+- The tool that triggers the remediation is marked `@tool(approval_mode="always_require")`,
+  or else a `ctx.request_info()` node emits a `RequestInfoEvent` that the caller
+  must approve before continuing.
+- As long as the human has not approved, the workflow stays paused.
 
-Exécution en streaming pour voir chaque étape (et la pause HITL) :
+Streaming execution to see each step (and the HITL pause):
 
 ```python
 async for event in workflow.run_stream(message=raw_logs):
-    # afficher la progression : sortie de chaque agent, décision de boucle, demande d'appro
-    handle(event)  # gère RequestInfoEvent → demande l'approbation à l'utilisateur
+    # display progress: each agent's output, loop decision, approval request
+    handle(event)  # handles RequestInfoEvent → asks the user for approval
 ```
 
 ---
 
-## 6. Données de démo (fournies)
+## 6. Demo data (provided)
 
-- `data/payment-incident.log` — incident volontairement **ambigu** : saturation du
-  pool DB après le déploiement v2.4.1, plus une latence Stripe légèrement élevée
-  (fausse piste). C'est ce qui déclenche la boucle de réflexion : 1er passage de
-  `RootCause` en confiance basse, 2e passage tranché après preuves supplémentaires.
-- `data/knowledge_base.json` — deux précédents : `INC-204` (config pool) et
-  `INC-187` (latence Stripe).
+- `data/payment-incident.log` — deliberately **ambiguous** incident: DB pool
+  saturation after the v2.4.1 deployment, plus a slightly elevated Stripe
+  latency (a red herring). This is what triggers the reflection loop: the 1st
+  `RootCause` pass has low confidence, the 2nd pass is decisive after additional
+  evidence.
+- `data/knowledge_base.json` — four past incidents: `INC-204` (pool config),
+  `INC-187` (Stripe latency), `INC-241` (webhook signature/header casing), and
+  `INC-223` (PayPal outage). `KBSearch` queries with `top_k=2` (`src/agents/kb_search.py`),
+  so it returns only the two highest-scoring matches for a given incident, not
+  the whole knowledge base.
 
-Tuning attendu pour que la démo « joue » :
-- 1er passage `RootCause` : confiance ≈ 0,55 (deux hypothèses plausibles) → reboucle.
-- 2e passage : confiance ≈ 0,88, cause = changement de `max_pool_size`.
+Expected tuning for the demo to "play out":
+- 1st `RootCause` pass: confidence ≈ 0.55 (two plausible hypotheses) → loops back.
+- 2nd pass: confidence ≈ 0.92, cause = `max_pool_size` change.
 
 ---
 
-## 7. Déploiement Azure
+## 7. Azure deployment
 
-Architecture de référence (alignée sur la doc Microsoft) :
+Reference architecture (aligned with Microsoft docs):
 
-| Composant | Service Azure | Rôle |
+| Component | Azure service | Role |
 |-----------|---------------|------|
-| Modèle LLM | Azure OpenAI / Microsoft Foundry (GPT-4o) | raisonnement des agents |
-| Base de connaissances | Azure AI Search | RAG sur incidents passés + runbooks |
-| API d'orchestration | Azure Container Apps | héberge l'orchestrateur |
-| Persistance (option) | Azure Cosmos DB | incidents, décisions, historique |
-| Images | Azure Container Registry | images versionnées |
-| Observabilité | Application Insights | traces OpenTelemetry du framework |
-| Secrets | Azure Key Vault | clés, endpoints |
+| LLM model | Azure OpenAI / Microsoft Foundry (GPT-4o) | agent reasoning |
+| Knowledge base | Azure AI Search | RAG over past incidents + runbooks |
+| Orchestration API | Azure Container Apps | hosts the orchestrator |
+| Persistence (optional) | Azure Cosmos DB | incidents, decisions, history |
+| Images | Azure Container Registry | versioned images |
+| Observability | Application Insights | OpenTelemetry traces from the framework |
+| Secrets | Azure Key Vault | keys, endpoints |
 
-Étapes (haut niveau) :
-1. Provisionner Azure OpenAI + déployer un modèle (noter le nom du déploiement).
-2. Créer un index Azure AI Search et y charger `knowledge_base.json` (vectorisé).
-3. Conteneuriser l'API d'orchestration → push vers Container Registry.
-4. Déployer sur Container Apps avec Managed Identity (`DefaultAzureCredential`).
-5. Connecter Application Insights pour la télémétrie.
+Steps (high level):
+1. Provision Azure OpenAI + deploy a model (note the deployment name).
+2. Create an Azure AI Search index and load `knowledge_base.json` into it (vectorized).
+3. Containerize the orchestration API → push to Container Registry.
+4. Deploy to Container Apps with Managed Identity (`DefaultAzureCredential`).
+5. Connect Application Insights for telemetry.
 
-Variables d'environnement : voir `.env.example`.
-
----
-
-## 8. Critères d'acceptation
-
-La démo est validée si, sur `data/payment-incident.log` :
-
-1. `IncidentExtractor` produit un incident SEV-1 ciblant `payment-api` / `db-pool`.
-2. `KBSearch` ramène **deux** précédents (`INC-204` et `INC-187`).
-3. Le **1er passage** de `RootCause` sort une confiance **< 0,75** → l'orchestrateur
-   **reboucle** (l'événement est visible dans le flux/les traces).
-4. Le **2e passage** sort une confiance **≥ 0,75** et désigne le changement de
-   `max_pool_size` comme cause (la latence Stripe est écartée).
-5. Le workflow **se met en pause** pour validation humaine avant la remédiation
-   (`RequestInfoEvent` / approbation de tool).
-6. Après approbation, un `RemediationPlan` puis un rapport final sont produits.
-7. Chaque sortie d'agent est observable (streaming d'événements).
-8. La boucle ne dépasse jamais `MAX_REFLECTION_LOOPS`.
+Environment variables: see `.env.example`.
 
 ---
 
-## 9. Étapes de réalisation suggérées (pour Claude Code)
+## 8. Acceptance criteria
 
-1. Squelette du repo + `pyproject.toml` + `models.py` (contrats pydantic).
-2. Les 6 agents avec leurs instructions (sorties JSON strictes), testés isolément
-   sur des entrées factices.
-3. Outil KB en mode local (`knowledge_base.json`) ; interface prête pour Azure AI Search.
-4. Graphe `WorkflowBuilder` : séquence + arête conditionnelle (boucle) + nœud HITL.
-5. CLI `src/main.py` qui injecte le log, streame les événements, gère l'approbation.
-6. Vérifier les 8 critères d'acceptation sur l'incident d'exemple.
-7. Conteneurisation + bascule KB vers Azure AI Search + variables Azure.
+The demo is validated if, on `data/payment-incident.log`:
+
+1. `IncidentExtractor` produces a SEV-1 incident targeting `payment-api` / `db-pool`.
+2. `KBSearch` returns **two** matches (`INC-204` and `INC-187`) out of the four
+   incidents in the knowledge base.
+3. The **1st pass** of `RootCause` comes out with a confidence **< 0.75** → the
+   orchestrator **loops back** (the event is visible in the stream/traces).
+4. The **2nd pass** comes out with a confidence **≥ 0.75** and identifies the
+   `max_pool_size` change as the cause (the Stripe latency is ruled out).
+5. The workflow **pauses** for human validation before the remediation
+   (`RequestInfoEvent` / tool approval).
+6. After approval, a `RemediationPlan` and then a final report are produced.
+7. Each agent output is observable (event streaming).
+8. The loop never exceeds `MAX_REFLECTION_LOOPS`.
 
 ---
 
-## 10. Références
+## 9. Suggested implementation steps (for Claude Code)
 
-- Agent Framework : https://learn.microsoft.com/agent-framework/overview/
-- Workflows / orchestrations : https://learn.microsoft.com/agent-framework/workflows/orchestrations/
-- Human-in-the-loop : https://learn.microsoft.com/agent-framework/workflows/human-in-the-loop
-- Séquentiel + HITL : https://learn.microsoft.com/agent-framework/workflows/orchestrations/sequential
-- Archi multi-agents Azure : https://learn.microsoft.com/azure/architecture/ai-ml/idea/multiple-agent-workflow-automation
-- Patterns d'orchestration : https://learn.microsoft.com/azure/architecture/ai-ml/guide/ai-agent-design-patterns
-- Azure AI Search (RAG) : https://learn.microsoft.com/azure/search/
+1. Repo skeleton + `pyproject.toml` + `models.py` (pydantic contracts).
+2. The 6 agents with their instructions (strict JSON outputs), tested in isolation
+   on dummy inputs.
+3. KB tool in local mode (`knowledge_base.json`); interface ready for Azure AI Search.
+4. `WorkflowBuilder` graph: sequence + conditional edge (loop) + HITL node.
+5. CLI `src/main.py` that injects the log, streams events, handles approval.
+6. Verify the 8 acceptance criteria on the example incident.
+7. Containerization + switch the KB to Azure AI Search + Azure environment variables.
+
+---
+
+## 10. References
+
+- Agent Framework: https://learn.microsoft.com/agent-framework/overview/
+- Workflows / orchestrations: https://learn.microsoft.com/agent-framework/workflows/orchestrations/
+- Human-in-the-loop: https://learn.microsoft.com/agent-framework/workflows/human-in-the-loop
+- Sequential + HITL: https://learn.microsoft.com/agent-framework/workflows/orchestrations/sequential
+- Azure multi-agent architecture: https://learn.microsoft.com/azure/architecture/ai-ml/idea/multiple-agent-workflow-automation
+- Orchestration patterns: https://learn.microsoft.com/azure/architecture/ai-ml/guide/ai-agent-design-patterns
+- Azure AI Search (RAG): https://learn.microsoft.com/azure/search/

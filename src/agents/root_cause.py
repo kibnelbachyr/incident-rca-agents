@@ -1,11 +1,11 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Agent RootCause (SPEC.md section 4.4).
+"""RootCause agent (SPEC.md section 4.4).
 
-Formule la meilleure hypothese de cause racine avec un score de confiance.
-C'est l'agent "fort" (ex. GPT-4o) : son score `confiance` et sa liste
-`preuves_manquantes` pilotent la boucle de reflexion de l'orchestrateur
-(SPEC.md section 5).
+Formulates the best root cause hypothesis with a confidence score. This is
+the "strong" agent (e.g. GPT-4o): its `confiance` score and its
+`preuves_manquantes` list drive the orchestrator's reflection loop (SPEC.md
+section 5).
 """
 
 from __future__ import annotations
@@ -13,27 +13,28 @@ from __future__ import annotations
 from src.agents.base import StructuredAgent
 from src.models import Incident, KBMatches, LogAnalysis, RootCauseHypothesis
 
-INSTRUCTIONS = """Tu es l'agent RootCause, l'agent le plus important d'un systeme de
-diagnostic d'incidents de paiement.
+INSTRUCTIONS = """You are the RootCause agent, the most important agent of a payment
+incident diagnosis system.
 
-Ton role : a partir de l'incident structure, de l'analyse de logs, des
-precedents similaires et, le cas echeant, de preuves supplementaires
-collectees lors d'un tour precedent, formuler la MEILLEURE hypothese de cause
-racine. Tu ne communiques jamais directement avec les autres agents.
+Your role: from the structured incident, the log analysis, similar
+precedents and, where applicable, additional evidence collected in a
+previous round, formulate the BEST root cause hypothesis. You never
+communicate directly with other agents.
 
-Produis un objet JSON avec :
-- "cause": la cause racine la plus probable (une phrase factuelle) ; si
-  plusieurs hypotheses restent plausibles, decris-les toutes dans ce champ ;
-- "raisonnement": l'enchainement de faits et de correlations qui justifie ta
-  conclusion (ou ton hesitation) ;
-- "confiance": un score entre 0 et 1 reflechissant ta certitude ;
-- "preuves_manquantes": si "confiance" est faible, liste les elements
-  factuels precis (ex. "diff de configuration du deploiement") qui te
-  permettraient de trancher au tour suivant ; liste vide si tu es confiant.
+Produce a JSON object with:
+- "cause": the most likely root cause (a factual sentence); if several
+  hypotheses remain plausible, describe all of them in this field;
+- "raisonnement": the chain of facts and correlations that justifies your
+  conclusion (or your hesitation);
+- "confiance": a score between 0 and 1 reflecting your certainty;
+- "preuves_manquantes": if "confiance" is low, list the precise factual
+  elements (e.g. "deployment configuration diff") that would let you decide
+  on the next round; empty list if you are confident.
 
-Sois honnete sur ton incertitude : il vaut mieux un score bas avec des preuves
-manquantes precises qu'une conclusion hative. Reponds UNIQUEMENT avec un objet
-JSON valide conforme au schema fourni, sans texte ni balises Markdown autour."""
+Be honest about your uncertainty: a low score with precise missing evidence
+is better than a hasty conclusion. Respond ONLY with a valid JSON object
+conforming to the provided schema, with no surrounding text or Markdown
+tags."""
 
 
 def build_prompt(
@@ -44,20 +45,20 @@ def build_prompt(
     evidence_log: list[str] | None = None,
 ) -> str:
     sections = [
-        f"Incident structure :\n{incident.model_dump_json(indent=2)}",
-        f"Analyse de logs :\n{log_analysis.model_dump_json(indent=2)}",
-        f"Precedents similaires :\n{kb_matches.model_dump_json(indent=2)}",
+        f"Structured incident:\n{incident.model_dump_json(indent=2)}",
+        f"Log analysis:\n{log_analysis.model_dump_json(indent=2)}",
+        f"Similar precedents:\n{kb_matches.model_dump_json(indent=2)}",
     ]
 
     if evidence_log:
         bullets = "\n".join(f"- {item}" for item in evidence_log)
-        sections.append(f"Preuves supplementaires collectees lors d'un tour precedent :\n{bullets}")
+        sections.append(f"Additional evidence collected in a previous round:\n{bullets}")
 
     return "\n\n".join(sections)
 
 
 class RootCauseAgent(StructuredAgent[RootCauseHypothesis]):
-    """Hypothese de cause racine + score de confiance (agent 4/6)."""
+    """Root cause hypothesis + confidence score (agent 4/6)."""
 
     name = "RootCause"
     instructions = INSTRUCTIONS

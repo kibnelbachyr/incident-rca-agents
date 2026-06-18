@@ -1,26 +1,26 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Endpoints d'execution du workflow (SSE) - coeur de l'API.
+"""Workflow execution endpoints (SSE) - the core of the API.
 
-Le diagnostic se deroule en deux phases HTTP, chacune un flux SSE
-(`text/event-stream`) :
+The diagnosis proceeds in two HTTP phases, each an SSE stream
+(`text/event-stream`):
 
-1. `POST /api/runs` : cree une nouvelle execution (un `Workflow` via
-   `build_workflow`, DECISIONS.md #16) et streame `step` (sortie de chaque
-   agent, y compris la boucle `RootCause <-> GatherEvidence`) jusqu'a la
-   porte humaine (`approval_required`) ou la fin (`done`).
-2. `POST /api/runs/{run_id}/approval` : reprend le MEME `Workflow` (`responses=
-   {request_id: bool}`, DECISIONS.md #14) et streame le reste (refus =
-   `human_approval` seul ; approbation = `remediation` + `summary`), puis
-   persiste le `SharedContext` final (`src/tools/persistence.py`) et emet
+1. `POST /api/runs`: creates a new run (a `Workflow` via
+   `build_workflow`, DECISIONS.md #16) and streams `step` (output of each
+   agent, including the `RootCause <-> GatherEvidence` loop) until the
+   human gate (`approval_required`) or the end (`done`).
+2. `POST /api/runs/{run_id}/approval`: resumes the SAME `Workflow` (`responses=
+   {request_id: bool}`, DECISIONS.md #14) and streams the rest (refusal =
+   `human_approval` only; approval = `remediation` + `summary`), then
+   persists the final `SharedContext` (`src/tools/persistence.py`) and emits
    `done`.
 
-Le `Workflow` de la phase 1 doit rester en memoire jusqu'a l'appel de
-l'approbation (ses executeurs, notamment `HumanApprovalExecutor`, portent de
-l'etat - DECISIONS.md #14) : il est garde dans `app.state.runs`, un registre
-en memoire `{run_id: RunState}` cote process.
+The phase-1 `Workflow` must stay in memory until the approval call is made
+(its executors, notably `HumanApprovalExecutor`, carry state -
+DECISIONS.md #14): it is kept in `app.state.runs`, an in-memory
+`{run_id: RunState}` registry on the process side.
 
-Evenements SSE emis :
+SSE events emitted:
 - `run_started`  : `{"run_id": str}`
 - `step`         : `{"executor_id": str, "context": SharedContext}`
 - `approval_required` : `{"request": RemediationApprovalRequest}`
@@ -54,7 +54,7 @@ router = APIRouter(tags=["runs"])
 
 @dataclass
 class RunState:
-    """Etat en memoire d'une execution entre ses deux phases HTTP."""
+    """In-memory state of a run between its two HTTP phases."""
 
     workflow: Workflow
     started_at: datetime = field(default_factory=lambda: datetime.now(UTC))
@@ -62,13 +62,13 @@ class RunState:
 
 
 class StartRunBody(BaseModel):
-    """Corps optionnel de `POST /api/runs`. Absence de corps = scenario par defaut."""
+    """Optional body of `POST /api/runs`. No body = default scenario."""
 
     scenario: str | None = None
 
 
 class ApprovalBody(BaseModel):
-    """Corps de `POST /api/runs/{run_id}/approval`."""
+    """Body of `POST /api/runs/{run_id}/approval`."""
 
     approved: bool
 
@@ -88,10 +88,10 @@ async def start_run(
     body: StartRunBody | None = None,
     settings: Settings = Depends(settings_dependency),
 ) -> StreamingResponse:
-    """Demarre une nouvelle execution sur le scenario demande (SSE).
+    """Start a new run on the requested scenario (SSE).
 
-    `body.scenario` est resolu via `src.scenarios.get_scenario` ; absence de
-    corps ou de champ `scenario` -> scenario par defaut (`db_pool`).
+    `body.scenario` is resolved via `src.scenarios.get_scenario`; no body
+    or no `scenario` field -> default scenario (`db_pool`).
     """
 
     try:
@@ -117,14 +117,14 @@ async def start_run(
                     state.pending_request_id = event.request_id
                     yield sse_event("approval_required", {"request": event.data.model_dump(mode="json")})
             await result.get_final_response()
-        except Exception as exc:  # noqa: BLE001 - on rapporte toute erreur au client SSE
+        except Exception as exc:  # noqa: BLE001 - report any error to the SSE client
             runs.pop(run_id, None)
             yield sse_event("error", {"message": str(exc)})
             return
 
         if state.pending_request_id is None:
-            # Etat inattendu (le graphe se termine toujours sur la porte
-            # HITL) : on nettoie quand meme le registre.
+            # Unexpected state (the graph always ends at the HITL gate):
+            # clean up the registry anyway.
             runs.pop(run_id, None)
             yield sse_event("done", {"approved": None})
 
@@ -138,7 +138,7 @@ async def submit_approval(
     request: Request,
     store: PersistenceStore = Depends(persistence_dependency),
 ) -> StreamingResponse:
-    """Reprend l'execution `run_id` apres decision humaine (SSE)."""
+    """Resume run `run_id` after the human decision (SSE)."""
 
     runs = _runs(request)
     state = runs.get(run_id)
@@ -156,7 +156,7 @@ async def submit_approval(
                     final_context = event.data
                     yield sse_event("step", _step_payload(event))
             await result.get_final_response()
-        except Exception as exc:  # noqa: BLE001 - on rapporte toute erreur au client SSE
+        except Exception as exc:  # noqa: BLE001 - report any error to the SSE client
             runs.pop(run_id, None)
             yield sse_event("error", {"message": str(exc)})
             return

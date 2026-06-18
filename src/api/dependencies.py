@@ -1,11 +1,11 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Dependances FastAPI partagees (`Settings`, base de persistance).
+"""Shared FastAPI dependencies (`Settings`, persistence store).
 
-Indirection volontaire (plutot que `get_settings()`/`get_persistence_store()`
-appeles directement dans les routes) pour permettre aux tests de surcharger
-`app.dependency_overrides` (ex. `LocalPersistenceStore` sur un repertoire
-temporaire plutot que `output/runs/`).
+Deliberate indirection (rather than calling `get_settings()`/
+`get_persistence_store()` directly in the routes) to let tests override
+`app.dependency_overrides` (e.g. `LocalPersistenceStore` on a temporary
+directory instead of `output/runs/`).
 """
 
 from __future__ import annotations

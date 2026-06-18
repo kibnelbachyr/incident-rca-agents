@@ -1,6 +1,6 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Parametres non sensibles exposes a l'UI (seuils, mode KB, mode modeles, scenarios)."""
+"""Non-sensitive settings exposed to the UI (thresholds, KB mode, model mode, scenarios)."""
 
 from __future__ import annotations
 

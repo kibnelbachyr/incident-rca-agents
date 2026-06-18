@@ -1,6 +1,6 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Historique des executions terminees (`src/tools/persistence.py`)."""
+"""History of completed runs (`src/tools/persistence.py`)."""
 
 from __future__ import annotations
 

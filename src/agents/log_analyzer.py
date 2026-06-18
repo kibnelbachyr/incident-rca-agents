@@ -1,9 +1,9 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Agent LogAnalyzer (SPEC.md section 4.1).
+"""LogAnalyzer agent (SPEC.md section 4.1).
 
-Normalise des logs bruts en timeline + anomalies + evenements correles.
-Modele suggere : leger (ex. gpt-4o-mini).
+Normalizes raw logs into a timeline + anomalies + correlated events.
+Suggested model: light (e.g. gpt-4o-mini).
 """
 
 from __future__ import annotations
@@ -11,47 +11,47 @@ from __future__ import annotations
 from src.agents.base import StructuredAgent
 from src.models import LogAnalysis
 
-INSTRUCTIONS = """Tu es l'agent LogAnalyzer d'un systeme de diagnostic d'incidents de paiement.
+INSTRUCTIONS = """You are the LogAnalyzer agent of a payment incident diagnosis system.
 
-Ton role : transformer des logs bruts en signal exploitable pour les agents
-suivants. Tu ne communiques jamais directement avec les autres agents ; tu
-recois un texte de l'orchestrateur et tu lui renvoies un objet JSON.
+Your role: turn raw logs into actionable signal for the next agents. You
+never communicate directly with other agents; you receive text from the
+orchestrator and return a JSON object to it.
 
-A partir des logs fournis (et, le cas echeant, des points a investiguer en
-priorite), produis :
-- "timeline": liste ordonnee des evenements cles, chacun avec "time" (HH:MM:SS)
-  et "event" (description courte et factuelle) ;
-- "anomalies": liste des anomalies detectees (saturation, pics de latence ou
-  d'erreur, comportements inhabituels) ;
-- "correlated_events": liste des correlations temporelles entre evenements
-  (ex. un changement de configuration suivi peu apres d'une degradation).
+From the provided logs (and, where applicable, priority points to
+investigate), produce:
+- "timeline": ordered list of key events, each with "time" (HH:MM:SS)
+  and "event" (short, factual description);
+- "anomalies": list of detected anomalies (saturation, latency or error
+  spikes, unusual behavior);
+- "correlated_events": list of temporal correlations between events
+  (e.g. a configuration change followed shortly after by a degradation).
 
-Reponds UNIQUEMENT avec un objet JSON valide conforme au schema fourni, sans
-texte ni balises Markdown autour."""
+Respond ONLY with a valid JSON object conforming to the provided schema,
+with no surrounding text or Markdown tags."""
 
 
 def build_prompt(raw_logs: str, *, focus: list[str] | None = None) -> str:
-    """Construit le prompt utilisateur a partir des logs bruts.
+    """Builds the user prompt from the raw logs.
 
-    `focus` est utilise par l'etape `GatherEvidence` de l'orchestrateur pour
-    cibler une nouvelle analyse sur les `preuves_manquantes` identifiees par
-    l'agent RootCause (SPEC.md section 5).
+    `focus` is used by the orchestrator's `GatherEvidence` step to target a
+    new analysis on the `preuves_manquantes` identified by the RootCause
+    agent (SPEC.md section 5).
     """
 
-    sections = [f"Logs bruts du systeme de paiement :\n{raw_logs}"]
+    sections = [f"Raw payment system logs:\n{raw_logs}"]
 
     if focus:
         points = "\n".join(f"- {item}" for item in focus)
         sections.append(
-            "L'agent RootCause a besoin des elements suivants pour trancher entre "
-            f"plusieurs hypotheses ; concentre ton analyse dessus :\n{points}"
+            "The RootCause agent needs the following elements to decide between "
+            f"several hypotheses; focus your analysis on them:\n{points}"
         )
 
     return "\n\n".join(sections)
 
 
 class LogAnalyzerAgent(StructuredAgent[LogAnalysis]):
-    """Normalise les logs et detecte anomalies + timeline (agent 1/6)."""
+    """Normalizes logs and detects anomalies + timeline (agent 1/6)."""
 
     name = "LogAnalyzer"
     instructions = INSTRUCTIONS

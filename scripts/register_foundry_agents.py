@@ -1,35 +1,34 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Enregistre les six agents comme « External Agents » dans le projet Microsoft
-Foundry (CLAUDE.md : rendre les agents visibles dans l'interface Foundry).
+"""Registers the six agents as "External Agents" in the Microsoft
+Foundry project (CLAUDE.md: make the agents visible in the Foundry UI).
 
-Les agents de cette demo tournent hors de Foundry (Azure OpenAI direct via
-`src/agents/clients.py`) : aucun n'est hebergee par le runtime d'agents de
-Foundry. `ExternalAgentDefinition` (azure-ai-projects, fonctionnalite preview)
-est concue precisement pour ce cas — l'enregistrement est purement declaratif
-(metadonnee) et rattache les spans OTel deja emis par chaque agent
-(`gen_ai.agent.id`, cf. le `id=agent_name` de
-`AzureOpenAIStructuredChatClient.get_structured_response`) a une entree visible
-dans le projet Foundry (Agents + Observability > Traces). Aucun appel de
-l'agent n'est jamais route via Foundry : le comportement a l'execution est
-inchange.
+The agents in this demo run outside of Foundry (direct Azure OpenAI via
+`src/agents/clients.py`): none of them is hosted by the Foundry agent
+runtime. `ExternalAgentDefinition` (azure-ai-projects, preview feature)
+is designed precisely for this case — the registration is purely declarative
+(metadata) and links the OTel spans already emitted by each agent
+(`gen_ai.agent.id`, cf. the `id=agent_name` of
+`AzureOpenAIStructuredChatClient.get_structured_response`) to an entry visible
+in the Foundry project (Agents + Observability > Traces). No agent call is
+ever routed through Foundry: runtime behavior is unchanged.
 
-Prerequis :
-- `pip install -e ".[foundry]"` (groupe optionnel `azure-ai-projects`,
-  absent des dependances de base : voir pyproject.toml).
-- `AZURE_FOUNDRY_PROJECT_ENDPOINT` dans `.env` (sortie `azd` apres `azd up`,
-  voir `infra/resources.bicep` et docs/deployment.md section 8.7/8.13).
-- `az login` (mode `AZURE_AUTH_MODE=cli`, par defaut en local) ou une identite
-  managee (`AZURE_AUTH_MODE=managed_identity`) avec un role suffisant sur le
-  projet Foundry pour creer des versions d'agent.
+Prerequisites:
+- `pip install -e ".[foundry]"` (optional group `azure-ai-projects`,
+  absent from the base dependencies: see pyproject.toml).
+- `AZURE_FOUNDRY_PROJECT_ENDPOINT` in `.env` (output of `azd` after `azd up`,
+  see `infra/resources.bicep` and docs/deployment.md section 8.7/8.13).
+- `az login` (mode `AZURE_AUTH_MODE=cli`, the local default) or a managed
+  identity (`AZURE_AUTH_MODE=managed_identity`) with a sufficient role on the
+  Foundry project to create agent versions.
 
 Usage::
 
     python -m scripts.register_foundry_agents
 
-A relancer apres tout changement de nom ou de description d'agent — un appel
-avec le meme `agent_name` cree simplement une nouvelle version (l'historique
-des versions est conserve par Foundry, aucune suppression n'est necessaire).
+Re-run after any change to an agent's name or description — a call with the
+same `agent_name` simply creates a new version (version history is kept by
+Foundry, no deletion is necessary).
 """
 
 from __future__ import annotations
@@ -53,21 +52,21 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class AgentRegistration:
-    """Un agent a enregistrer : `name` doit correspondre exactement au
-    `gen_ai.agent.id` emis a l'execution (sinon les traces ne se rattachent
-    pas a l'enregistrement, cf. module docstring)."""
+    """An agent to register: `name` must match exactly the
+    `gen_ai.agent.id` emitted at runtime (otherwise traces don't link
+    back to the registration, cf. module docstring)."""
 
     name: str
     description: str
 
 
-# Le nom de chaque agent est lu directement sur sa classe (`StructuredAgent.name`,
-# src/agents/base.py) plutot que recopie en chaine litterale : ainsi un futur
-# renommage d'agent ne peut pas faire diverger silencieusement ce script de
-# `src/agents/clients.py` (meme `agent_name` cote enregistrement et cote
-# `id=agent_name` a l'execution). Les descriptions, elles, sont propres a cet
-# enregistrement (metadonnee Foundry) et n'ont pas d'equivalent runtime a
-# rester synchronise avec.
+# Each agent's name is read directly from its class (`StructuredAgent.name`,
+# src/agents/base.py) rather than copied as a literal string: this way a
+# future agent rename cannot silently drift from `src/agents/clients.py`
+# (same `agent_name` on the registration side and on the `id=agent_name`
+# side at runtime). The descriptions, on the other hand, are specific to
+# this registration (Foundry metadata) and have no runtime equivalent to
+# stay in sync with.
 _AGENT_DESCRIPTIONS: list[tuple[type, str]] = [
     (
         LogAnalyzerAgent,
@@ -104,7 +103,7 @@ _AGENT_DESCRIPTIONS: list[tuple[type, str]] = [
 
 
 def agents_to_register() -> list[AgentRegistration]:
-    """Construit la liste des agents a enregistrer. Pure, sans appel reseau."""
+    """Builds the list of agents to register. Pure, no network call."""
 
     return [
         AgentRegistration(name=agent_cls.name, description=description)
@@ -113,11 +112,11 @@ def agents_to_register() -> list[AgentRegistration]:
 
 
 def register_all(project_client: "AIProjectClient", registrations: list[AgentRegistration]) -> None:
-    """Enregistre chaque agent via `create_version` (definition External Agent).
+    """Registers each agent via `create_version` (External Agent definition).
 
-    `otel_agent_id` n'est pas precise explicitement : il vaut alors par defaut
-    `agent_name` (doc `ExternalAgentDefinition`), ce qui est exactement la
-    valeur souhaitee ici.
+    `otel_agent_id` is not explicitly specified: it then defaults to
+    `agent_name` (per the `ExternalAgentDefinition` docs), which is exactly
+    the value wanted here.
     """
 
     from azure.ai.projects.models import ExternalAgentDefinition
@@ -135,8 +134,8 @@ def main() -> None:
     settings = get_settings()
     if not settings.azure_foundry_project_endpoint:
         raise SystemExit(
-            "AZURE_FOUNDRY_PROJECT_ENDPOINT n'est pas configure (.env). "
-            "Voir docs/deployment.md section 8.13."
+            "AZURE_FOUNDRY_PROJECT_ENDPOINT is not configured (.env). "
+            "See docs/deployment.md section 8.13."
         )
 
     from azure.ai.projects import AIProjectClient
@@ -148,8 +147,8 @@ def main() -> None:
     project_client = AIProjectClient(
         endpoint=settings.azure_foundry_project_endpoint,
         credential=credential,
-        # External Agents est une fonctionnalite preview de l'API Foundry
-        # (DECISIONS.md #29) : sans ce flag, le service rejette l'enregistrement.
+        # External Agents is a preview feature of the Foundry API
+        # (DECISIONS.md #29): without this flag, the service rejects the registration.
         allow_preview=True,
     )
 

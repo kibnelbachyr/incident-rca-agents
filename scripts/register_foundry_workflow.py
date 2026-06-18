@@ -1,37 +1,37 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Enregistre le graphe d'orchestration comme un agent de type « Workflow »
-dans le projet Microsoft Foundry (CLAUDE.md : rendre l'orchestration visible
-dans l'interface Foundry, en complement des six agents, cf.
+"""Registers the orchestration graph as a "Workflow"-type agent in the
+Microsoft Foundry project (CLAUDE.md: make the orchestration visible in
+the Foundry UI, in addition to the six agents, cf.
 scripts/register_foundry_agents.py).
 
-Contrairement aux six agents (`ExternalAgentDefinition`, metadata-only), ce
-script enregistre un **second artefact** : `scripts/foundry_workflow.yaml`,
-une definition CSDL ecrite a la main qui reproduit la topologie de
-`src/orchestrator/graph.py` (sequence, boucle de reflexion bornee, porte
-HITL) afin qu'elle soit visible/navigable dans le canevas visuel du projet
-Foundry. Ce YAML n'est PAS genere depuis le `WorkflowBuilder` Python (aucun
-exportateur n'existe) et ne s'execute PAS reellement : l'orchestration qui
-tourne pour de vrai reste 100% `src/orchestrator/graph.py` + `executors.py`.
-Voir les commentaires en tete de `foundry_workflow.yaml` et DECISIONS.md #30
-pour le detail de cette limite.
+Unlike the six agents (`ExternalAgentDefinition`, metadata-only), this
+script registers a **second artifact**: `scripts/foundry_workflow.yaml`,
+a hand-written CSDL definition that reproduces the topology of
+`src/orchestrator/graph.py` (sequence, bounded reflection loop, HITL
+gate) so that it is visible/navigable in the Foundry project's visual
+canvas. This YAML is NOT generated from the Python `WorkflowBuilder` (no
+exporter exists) and does NOT actually execute: the orchestration that
+really runs remains 100% `src/orchestrator/graph.py` + `executors.py`.
+See the header comments in `foundry_workflow.yaml` and DECISIONS.md #30
+for details on this limitation.
 
-Prerequis : identiques a `register_foundry_agents.py` (docs/deployment.md
-section 8.13/8.14) :
-- `pip install -e ".[foundry]"` (groupe optionnel `azure-ai-projects`).
-- `AZURE_FOUNDRY_PROJECT_ENDPOINT` dans `.env`.
-- `az login` (mode `AZURE_AUTH_MODE=cli`, par defaut) ou identite managee.
-- Lancer `python -m scripts.register_foundry_agents` au moins une fois avant
-  (les six agents references par `foundry_workflow.yaml` via
-  `InvokeAzureAgent` doivent deja exister dans le projet).
+Prerequisites: identical to `register_foundry_agents.py` (docs/deployment.md
+section 8.13/8.14):
+- `pip install -e ".[foundry]"` (optional group `azure-ai-projects`).
+- `AZURE_FOUNDRY_PROJECT_ENDPOINT` in `.env`.
+- `az login` (mode `AZURE_AUTH_MODE=cli`, the default) or a managed identity.
+- Run `python -m scripts.register_foundry_agents` at least once beforehand
+  (the six agents referenced by `foundry_workflow.yaml` via
+  `InvokeAzureAgent` must already exist in the project).
 
 Usage::
 
     python -m scripts.register_foundry_workflow
 
-A relancer apres toute modification de `foundry_workflow.yaml` — comme pour
-les agents, un appel avec le meme `agent_name` cree une nouvelle version
-(l'historique est conserve par Foundry).
+Re-run after any change to `foundry_workflow.yaml` — as with the agents, a
+call with the same `agent_name` creates a new version (history is kept by
+Foundry).
 """
 
 from __future__ import annotations
@@ -56,20 +56,20 @@ WORKFLOW_YAML_PATH = Path(__file__).resolve().parent / "foundry_workflow.yaml"
 
 
 def load_workflow_yaml(path: Path = WORKFLOW_YAML_PATH) -> str:
-    """Lit la definition CSDL depuis le fichier YAML. Pure, sans appel reseau."""
+    """Reads the CSDL definition from the YAML file. Pure, no network call."""
 
     return path.read_text(encoding="utf-8")
 
 
 def register_workflow(project_client: "AIProjectClient", workflow_yaml: str) -> None:
-    """Enregistre le workflow via `create_version` (definition Workflow Agent).
+    """Registers the workflow via `create_version` (Workflow Agent definition).
 
-    Fonctionnalite preview (`WorkflowAgents=V1Preview`) : le header
-    `Foundry-Features` correspondant est ajoute automatiquement par le SDK
-    installe dès que `AIProjectClient(..., allow_preview=True)` est utilise
-    (confirme par lecture du source installe,
-    `azure/ai/projects/operations/_patch_agents.py`) — aucun header manuel a
-    construire ici, contrairement a ce qu'indique la doc REST brute.
+    Preview feature (`WorkflowAgents=V1Preview`): the corresponding
+    `Foundry-Features` header is added automatically by the installed SDK
+    as soon as `AIProjectClient(..., allow_preview=True)` is used
+    (confirmed by reading the installed source,
+    `azure/ai/projects/operations/_patch_agents.py`) — no manual header to
+    build here, contrary to what the raw REST docs suggest.
     """
 
     from azure.ai.projects.models import WorkflowAgentDefinition
@@ -86,8 +86,8 @@ def main() -> None:
     settings = get_settings()
     if not settings.azure_foundry_project_endpoint:
         raise SystemExit(
-            "AZURE_FOUNDRY_PROJECT_ENDPOINT n'est pas configure (.env). "
-            "Voir docs/deployment.md section 8.13."
+            "AZURE_FOUNDRY_PROJECT_ENDPOINT is not configured (.env). "
+            "See docs/deployment.md section 8.13."
         )
 
     from azure.ai.projects import AIProjectClient
@@ -99,8 +99,8 @@ def main() -> None:
     project_client = AIProjectClient(
         endpoint=settings.azure_foundry_project_endpoint,
         credential=credential,
-        # Workflow Agents est une fonctionnalite preview de l'API Foundry :
-        # sans ce flag, le service rejette l'enregistrement (DECISIONS.md #30).
+        # Workflow Agents is a preview feature of the Foundry API:
+        # without this flag, the service rejects the registration (DECISIONS.md #30).
         allow_preview=True,
     )
 

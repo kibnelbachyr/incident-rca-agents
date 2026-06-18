@@ -1,10 +1,9 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Agent Summary (SPEC.md section 4.6).
+"""Summary agent (SPEC.md section 4.6).
 
-Redige le rapport d'incident final (texte pret-a-coller + champs cles), a
-partir de l'ensemble du contexte accumule par l'orchestrateur. Modele
-suggere : leger.
+Writes the final incident report (ready-to-paste text + key fields), from
+the full context accumulated by the orchestrator. Suggested model: light.
 """
 
 from __future__ import annotations
@@ -12,28 +11,29 @@ from __future__ import annotations
 from src.agents.base import StructuredAgent
 from src.models import Incident, IncidentReport, KBMatches, LogAnalysis, RemediationPlan, RootCauseHypothesis
 
-INSTRUCTIONS = """Tu es l'agent Summary d'un systeme de diagnostic d'incidents de paiement.
+INSTRUCTIONS = """You are the Summary agent of a payment incident diagnosis system.
 
-Ton role : rediger le rapport final de l'incident, a partir de l'incident
-structure, de l'analyse de logs, de la cause racine confirmee, du plan de
-remediation approuve et des precedents similaires.
+Your role: write the incident's final report, from the structured incident,
+the log analysis, the confirmed root cause, the approved remediation plan and
+similar precedents.
 
-Produis un objet JSON avec :
-- "titre": titre du rapport, ex. "INCIDENT SEV-1 - Pic d'echecs de paiement" ;
-- "fenetre": fenetre temporelle de l'incident (mentionne "resolu" si applicable) ;
-- "impact": description courte de l'impact (ex. "38% des transactions en echec") ;
-- "cause_racine": description en prose de la cause racine confirmee ;
-- "confiance": le score de confiance de la cause racine (0-1) ;
-- "remediation": liste ordonnee et priorisee des actions de remediation
-  (fusionne immediat/court terme/long terme en une seule liste numerotable) ;
-- "precedent_lie": reference courte au precedent le plus pertinent (ex.
-  "INC-204 (meme schema, meme resolution)"), ou null si aucun ne s'applique ;
-- "texte": le rapport complet, en texte brut pret a coller dans un
-  post-mortem, avec les sections "CAUSE RACINE (confiance X)", "REMEDIATION"
-  (liste numerotee) et "PRECEDENT LIE".
+Produce a JSON object with:
+- "titre": report title, e.g. "INCIDENT SEV-1 - Payment failure spike";
+- "fenetre": time window of the incident (mention "resolved" if applicable);
+- "impact": short description of the impact (e.g. "38% of transactions
+  failing");
+- "cause_racine": prose description of the confirmed root cause;
+- "confiance": the root cause's confidence score (0-1);
+- "remediation": ordered, prioritized list of remediation actions (merges
+  immediate/short-term/long-term into a single numberable list);
+- "precedent_lie": short reference to the most relevant precedent (e.g.
+  "INC-204 (same pattern, same resolution)"), or null if none applies;
+- "texte": the full report, as plain text ready to paste into a post-mortem,
+  with the sections "ROOT CAUSE (confidence X)", "REMEDIATION" (numbered
+  list) and "RELATED PRECEDENT".
 
-Reponds UNIQUEMENT avec un objet JSON valide conforme au schema fourni, sans
-texte ni balises Markdown autour."""
+Respond ONLY with a valid JSON object conforming to the provided schema,
+with no surrounding text or Markdown tags."""
 
 
 def build_prompt(
@@ -44,21 +44,21 @@ def build_prompt(
     kb_matches: KBMatches,
 ) -> str:
     return (
-        "Incident structure :\n"
+        "Structured incident:\n"
         f"{incident.model_dump_json(indent=2)}\n\n"
-        "Analyse de logs :\n"
+        "Log analysis:\n"
         f"{log_analysis.model_dump_json(indent=2)}\n\n"
-        "Cause racine confirmee :\n"
+        "Confirmed root cause:\n"
         f"{root_cause.model_dump_json(indent=2)}\n\n"
-        "Plan de remediation approuve :\n"
+        "Approved remediation plan:\n"
         f"{remediation_plan.model_dump_json(indent=2)}\n\n"
-        "Precedents similaires :\n"
+        "Similar precedents:\n"
         f"{kb_matches.model_dump_json(indent=2)}"
     )
 
 
 class SummaryAgent(StructuredAgent[IncidentReport]):
-    """Redige le rapport d'incident final (agent 6/6)."""
+    """Writes the final incident report (agent 6/6)."""
 
     name = "Summary"
     instructions = INSTRUCTIONS

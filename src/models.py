@@ -1,12 +1,12 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Contrats de donnees (pydantic) echanges entre l'orchestrateur et les agents.
+"""Data contracts (pydantic) exchanged between the orchestrator and the agents.
 
-Ces modeles sont la "source de verite" des schemas JSON definis dans SPEC.md
-section 4. Chaque agent renvoie exclusivement un JSON valide selon l'un de ces
-modeles (via `response_format` cote client de chat). L'orchestrateur accumule
-ces sorties dans `SharedContext`, qui circule de noeud en noeud dans le graphe
-`WorkflowBuilder`.
+These models are the "source of truth" for the JSON schemas defined in
+SPEC.md section 4. Each agent returns exclusively JSON valid against one of
+these models (via `response_format` on the chat client side). The
+orchestrator accumulates these outputs in `SharedContext`, which flows from
+node to node in the `WorkflowBuilder` graph.
 """
 
 from __future__ import annotations
@@ -19,14 +19,14 @@ from pydantic import BaseModel, Field
 
 
 class TimelineEvent(BaseModel):
-    """Un evenement normalise extrait des logs bruts."""
+    """A normalized event extracted from the raw logs."""
 
     time: str
     event: str
 
 
 class LogAnalysis(BaseModel):
-    """Sortie de l'agent `LogAnalyzer` (SPEC.md section 4.1)."""
+    """Output of the `LogAnalyzer` agent (SPEC.md section 4.1)."""
 
     timeline: list[TimelineEvent]
     anomalies: list[str]
@@ -39,7 +39,7 @@ class LogAnalysis(BaseModel):
 
 
 class Incident(BaseModel):
-    """Sortie de l'agent `IncidentExtractor` (SPEC.md section 4.2)."""
+    """Output of the `IncidentExtractor` agent (SPEC.md section 4.2)."""
 
     titre: str
     severite: str = Field(pattern=r"^SEV-[1-5]$")
@@ -54,7 +54,7 @@ class Incident(BaseModel):
 
 
 class KBMatch(BaseModel):
-    """Un precedent retourne par la base de connaissances."""
+    """A precedent returned by the knowledge base."""
 
     id: str
     similarite: float = Field(ge=0.0, le=1.0)
@@ -62,7 +62,7 @@ class KBMatch(BaseModel):
 
 
 class KBMatches(BaseModel):
-    """Sortie de l'agent `KBSearch` (SPEC.md section 4.3)."""
+    """Output of the `KBSearch` agent (SPEC.md section 4.3)."""
 
     matches: list[KBMatch] = Field(default_factory=list)
 
@@ -73,10 +73,10 @@ class KBMatches(BaseModel):
 
 
 class RootCauseHypothesis(BaseModel):
-    """Sortie de l'agent `RootCause` (SPEC.md section 4.4).
+    """Output of the `RootCause` agent (SPEC.md section 4.4).
 
-    Si `confiance < CONFIDENCE_THRESHOLD`, `preuves_manquantes` doit lister ce
-    que l'orchestrateur va aller chercher (boucle `GatherEvidence`).
+    If `confiance < CONFIDENCE_THRESHOLD`, `preuves_manquantes` must list
+    what the orchestrator will go fetch (`GatherEvidence` loop).
     """
 
     cause: str
@@ -86,14 +86,14 @@ class RootCauseHypothesis(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# 5. Remediation -> RemediationPlan (derriere HITL)
+# 5. Remediation -> RemediationPlan (behind HITL)
 # ---------------------------------------------------------------------------
 
 
 class RemediationPlan(BaseModel):
-    """Sortie de l'agent `Remediation` (SPEC.md section 4.5).
+    """Output of the `Remediation` agent (SPEC.md section 4.5).
 
-    Plan propose uniquement : aucune action n'est executee sur un vrai systeme.
+    Proposed plan only: no action is ever executed on a real system.
     """
 
     immediat: list[str]
@@ -107,10 +107,10 @@ class RemediationPlan(BaseModel):
 
 
 class IncidentReport(BaseModel):
-    """Sortie de l'agent `Summary` (SPEC.md section 4.6 / scenario section 5).
+    """Output of the `Summary` agent (SPEC.md section 4.6 / scenario section 5).
 
-    `texte` porte le rapport pret-a-coller (format scenario) ; les autres
-    champs exposent les valeurs cles pour un affichage structure.
+    `texte` carries the ready-to-paste report (scenario format); the other
+    fields expose the key values for a structured display.
     """
 
     titre: str
@@ -124,15 +124,15 @@ class IncidentReport(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Human-in-the-loop : porte de validation avant remediation
+# Human-in-the-loop: approval gate before remediation
 # ---------------------------------------------------------------------------
 
 
 class RemediationApprovalRequest(BaseModel):
-    """Donnees presentees a l'humain avant d'invoquer l'agent `Remediation`.
+    """Data presented to the human before invoking the `Remediation` agent.
 
-    Emis via `ctx.request_info(request_data=..., response_type=bool)` ; le
-    workflow reste en pause tant qu'aucune reponse booleenne n'est recue.
+    Emitted via `ctx.request_info(request_data=..., response_type=bool)`;
+    the workflow stays paused until a boolean response is received.
     """
 
     incident: Incident
@@ -142,21 +142,21 @@ class RemediationApprovalRequest(BaseModel):
 
 
 # ---------------------------------------------------------------------------
-# Contexte partage (orchestrateur) : grossit au fil du graphe
+# Shared context (orchestrator): grows as the graph progresses
 # ---------------------------------------------------------------------------
 
 
 class SharedContext(BaseModel):
-    """Contexte detenu par l'orchestrateur et transmis de noeud en noeud.
+    """Context held by the orchestrator and passed from node to node.
 
-    Les agents sont sans etat : ils ne lisent/ecrivent jamais ce contexte
-    directement, c'est l'orchestrateur (les `Executor`) qui le met a jour
-    entre chaque appel d'agent.
+    Agents are stateless: they never read/write this context directly, it's
+    the orchestrator (the `Executor`s) that updates it between each agent
+    call.
     """
 
     raw_logs: str
 
-    # Sorties successives des agents.
+    # Successive agent outputs.
     log_analysis: LogAnalysis | None = None
     incident: Incident | None = None
     kb_matches: KBMatches | None = None
@@ -164,13 +164,13 @@ class SharedContext(BaseModel):
     remediation_plan: RemediationPlan | None = None
     report: IncidentReport | None = None
 
-    # Boucle de reflexion (bornee par MAX_REFLECTION_LOOPS).
+    # Reflection loop (bounded by MAX_REFLECTION_LOOPS).
     loop_count: int = 0
     root_cause_history: list[RootCauseHypothesis] = Field(default_factory=list)
     evidence_log: list[str] = Field(default_factory=list)
 
-    # Porte de validation humaine.
+    # Human approval gate.
     approved: bool | None = None
 
-    # Note de routage positionnée par GatherEvidenceExecutor.
+    # Routing note set by GatherEvidenceExecutor.
     routing_note: str | None = None

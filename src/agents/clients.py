@@ -1,21 +1,22 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Abstraction du client de chat structure utilise par les six agents.
+"""Structured chat client abstraction used by the six agents.
 
-Deux implementations partagent le protocole `StructuredChatClient` :
+Two implementations share the `StructuredChatClient` protocol:
 
-- `StubChatClient` : reponses deterministes rejouant le scenario de demo
-  (SPEC.md section 6 / scenario-demo-incident-paiement.md), utilisee quand
-  aucun endpoint Azure OpenAI exploitable n'est configure (mode hors-ligne).
-- `AzureOpenAIStructuredChatClient` : agents reels via
+- `StubChatClient`: deterministic responses replaying the demo scenario
+  (SPEC.md section 6 / scenario-demo-incident-paiement.md), used when no
+  usable Azure OpenAI endpoint is configured (offline mode).
+- `AzureOpenAIStructuredChatClient`: real agents via
   `agent_framework.openai.OpenAIChatCompletionClient` + `as_agent(...)`,
-  route vers Azure OpenAI / Microsoft Foundry par les variables `AZURE_OPENAI_*`
-  (voir SPEC.md section 3 et `.env.example`).
+  routed to Azure OpenAI / Microsoft Foundry via the `AZURE_OPENAI_*`
+  variables (see SPEC.md section 3 and `.env.example`).
 
-`get_chat_client(settings, light=..., scenario=...)` choisit automatiquement
-entre les deux selon `Settings.use_real_azure_openai` (DECISIONS.md #1 et #3) ;
-`scenario` selectionne le jeu de reponses canon rejoue par `StubChatClient`
-(voir `src.scenarios` pour le registre des scenarios disponibles).
+`get_chat_client(settings, light=..., scenario=...)` automatically picks
+between the two based on `Settings.use_real_azure_openai` (DECISIONS.md #1
+and #3); `scenario` selects the canned response set replayed by
+`StubChatClient` (see `src.scenarios` for the registry of available
+scenarios).
 """
 
 from __future__ import annotations
@@ -30,8 +31,8 @@ T = TypeVar("T", bound=BaseModel)
 
 
 class StructuredChatClient(Protocol):
-    """Capacite minimale requise par un agent : produire une reponse JSON
-    validee contre un modele pydantic, a partir d'instructions et d'un prompt."""
+    """Minimal capability required by an agent: produce a JSON response
+    validated against a pydantic model, given instructions and a prompt."""
 
     async def get_structured_response(
         self,
@@ -44,19 +45,18 @@ class StructuredChatClient(Protocol):
 
 
 # ---------------------------------------------------------------------------
-# Stub deterministe (mode hors-ligne) — DECISIONS.md #4
+# Deterministic stub (offline mode) — DECISIONS.md #4
 # ---------------------------------------------------------------------------
 
-# Reponses canon par scenario puis par agent. Chaque entree agent est soit un
-# dict (reponse unique, rejouee a chaque appel), soit une liste de dicts
-# indexee par numero d'appel (le dernier element est reutilise au-dela de la
-# longueur de la liste). La liste permet de simuler la boucle de reflexion de
-# l'agent RootCause : 1er passage confiance basse (hypotheses concurrentes),
-# 2e passage tranche apres `GatherEvidence`.
+# Canned responses keyed by scenario then by agent. Each agent entry is either
+# a dict (single response, replayed on every call) or a list of dicts indexed
+# by call number (the last element is reused beyond the list's length). The
+# list form simulates the RootCause agent's reflection loop: 1st pass with low
+# confidence (competing hypotheses), 2nd pass resolved after `GatherEvidence`.
 _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
     "db_pool": {
         "LogAnalyzer": [
-            # 1er passage : analyse initiale des logs bruts.
+            # 1st pass: initial analysis of the raw logs.
             {
                 "timeline": [
                     {"time": "14:00:11", "event": "Deployment payment-api v2.4.1 started (rolling, 6 pods, 90s window)"},
@@ -64,7 +64,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
                     {"time": "14:04:33", "event": "Rolling deployment complete — all 6 pods on v2.4.1"},
                     {"time": "14:16:02", "event": "DB pool utilisation crosses 70% threshold (first alert suppressed — below configured 85% limit)"},
                     {"time": "14:22:47", "event": "Pool 100% saturated: 20/20 connections acquired, 0 available"},
-                    {"time": "14:23:15", "event": "First connection acquisition timeout after 5 000ms — payment persistence failing"},
+                    {"time": "14:23:15", "event": "First connection acquisition timeout after 5000ms — payment persistence failing"},
                     {"time": "14:23:31", "event": "Stripe API latency: 780ms p95 (baseline 600ms, +30% deviation)"},
                     {"time": "14:24:50", "event": "Error rate at 38% over 60s window — SEV-1 threshold exceeded"},
                     {"time": "14:26:30", "event": "Client retry storm: inbound traffic 3.4× baseline, amplifying pool backpressure"},
@@ -83,7 +83,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
                     "Stripe latency spike (14:23–14:29) coincides with error surge but self-resolves: insufficient to explain 18-minute persistence of saturation",
                 ],
             },
-            # 2e passage (GatherEvidence) : focus sur le diff de config et la trajectoire Stripe.
+            # 2nd pass (GatherEvidence): focus on the config diff and the Stripe trajectory.
             {
                 "timeline": [
                     {"time": "14:00:12", "event": "ConfigMap diff confirmed: db.max_pool_size 40 → 20 in v2.4.1 (only config change)"},
@@ -139,7 +139,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
             ],
         },
         "RootCause": [
-            # 1er passage : confiance insuffisante, deux hypotheses concurrentes.
+            # 1st pass: insufficient confidence, two competing hypotheses.
             {
                 "cause": (
                     "Two competing hypotheses remain unresolved with current evidence: "
@@ -165,7 +165,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
                     "DB pool utilisation trend between 14:04 (deploy complete) and 14:16 (70% threshold) to model depletion rate",
                 ],
             },
-            # 2e passage (après GatherEvidence) : cause tranchée, Stripe écarté.
+            # 2nd pass (after GatherEvidence): cause resolved, Stripe ruled out.
             {
                 "cause": (
                     "Deployment payment-api v2.4.1 reduced db.max_pool_size from 40 to 20 via ConfigMap patch, "
@@ -194,7 +194,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
             ],
             "court_terme": [
                 "Add Prometheus alert: pool utilisation >80% for >60s triggers PagerDuty (currently no alert on this metric — first notification came from users)",
-                "Set explicit connection acquisition timeout: hard limit 3 000ms with structured error log and 503 response (currently unbounded)",
+                "Set explicit connection acquisition timeout: hard limit 3000ms with structured error log and 503 response (currently unbounded)",
                 "Update deployment runbook: any ConfigMap change to db.*, worker_count, or queue_depth requires load-test sign-off before prod rollout",
                 "Add automated canary: 5% traffic to new version for 10 min, automatic rollback if error rate >2%",
             ],
@@ -207,7 +207,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
         "Summary": {
             "titre": "INCIDENT SEV-1 — DB Pool Exhaustion (payment-api v2.4.1)",
             "fenetre": "14:23 → 14:41 UTC (18 min, resolved by rollback)",
-            "impact": "38% payment transaction failure rate at peak · ~3 400 failed transactions estimated",
+            "impact": "38% payment transaction failure rate at peak · ~3,400 failed transactions estimated",
             "cause_racine": (
                 "Deployment v2.4.1 halved db.max_pool_size from 40 to 20 via ConfigMap patch. "
                 "Pool exhausted under nominal load within 22 min. Stripe latency transient was a red herring — "
@@ -216,7 +216,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
             "confiance": 0.92,
             "remediation": [
                 "IMMEDIATE  — Rollback v2.4.1, restore db.max_pool_size=40, drain stale connections, apply retry backoff",
-                "SHORT-TERM — Pool utilisation alert >80%, acquisition timeout 3 000ms, canary deployment policy, runbook update",
+                "SHORT-TERM — Pool utilisation alert >80%, acquisition timeout 3000ms, canary deployment policy, runbook update",
                 "LONG-TERM  — CI infra config review gate, PgBouncer evaluation, capacity headroom dashboard",
             ],
             "precedent_lie": "INC-204 (identical root cause — pool config change — same resolution path)",
@@ -225,7 +225,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
                 "═══════════════════════════════════════════════════\n"
                 " Title    DB Pool Exhaustion — payment-api v2.4.1\n"
                 " Window   14:23 → 14:41 UTC  (18 min resolved)\n"
-                " Impact   38% payment failure rate · ~3 400 transactions lost\n"
+                " Impact   38% payment failure rate · ~3,400 transactions lost\n"
                 " Decision Rollback approved and applied\n"
                 "───────────────────────────────────────────────────\n"
                 "\n"
@@ -248,7 +248,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
                 "REMEDIATION (proposed — not executed on live systems)\n"
                 "  IMMEDIATE   Rollback to v2.4.0; restore db.max_pool_size=40\n"
                 "              Drain stale connections; apply client retry backoff\n"
-                "  SHORT-TERM  Pool utilisation alert (>80%); timeout 3 000ms\n"
+                "  SHORT-TERM  Pool utilisation alert (>80%); timeout 3000ms\n"
                 "              Canary deployment policy; runbook updated\n"
                 "  LONG-TERM   CI infra config review gate; PgBouncer eval\n"
                 "              Capacity headroom trending dashboard\n"
@@ -260,7 +260,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
     },
     "paypal_integration": {
         "LogAnalyzer": [
-            # 1er passage : analyse initiale, couvre les 5 jours jusqu'a l'escalade support.
+            # 1st pass: initial analysis, covers the 5 days up to the support escalation.
             {
                 "timeline": [
                     {
@@ -320,7 +320,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
                     "Support escalation (5 days post-deploy) is the first human-triggered investigation; automated monitoring never flagged the regression",
                 ],
             },
-            # 2e passage (GatherEvidence) : focus sur le casing des en-tetes et le diff applicatif.
+            # 2nd pass (GatherEvidence): focus on header casing and the application diff.
             {
                 "timeline": [
                     {
@@ -391,7 +391,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
             ],
         },
         "RootCause": [
-            # 1er passage : confiance insuffisante, hypothese externe vs interne non tranchee.
+            # 1st pass: insufficient confidence, external vs internal hypothesis unresolved.
             {
                 "cause": (
                     "Two competing hypotheses remain unresolved with current evidence: "
@@ -420,7 +420,7 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
                     "Any corroborating signal of a PayPal-side webhook-specific incident beyond the general status page (support channels, other merchants)",
                 ],
             },
-            # 2e passage (après GatherEvidence) : cause tranchée, hypothese externe écartée.
+            # 2nd pass (after GatherEvidence): cause resolved, external hypothesis ruled out.
             {
                 "cause": (
                     "payment-api v3.1.0 replaced a case-insensitive header lookup with a case-sensitive dict access in the webhook "
@@ -523,13 +523,13 @@ _STUB_RESPONSES: dict[str, dict[str, dict[str, Any] | list[dict[str, Any]]]] = {
 
 
 class StubChatClient:
-    """Client "stub" deterministe pour executer la demo hors-ligne.
+    """Deterministic "stub" client for running the demo offline.
 
-    Ne fait aucun appel reseau : renvoie des reponses figees qui respectent
-    les contrats pydantic de `src/models.py` et reproduisent le scenario de
-    demo selectionne (`scenario`, cf. `src.scenarios`), y compris la boucle de
-    reflexion de `RootCause` (1er passage confiance basse, 2e passage
-    confiance haute apres `GatherEvidence`).
+    Makes no network calls: returns canned responses that satisfy the
+    pydantic contracts in `src/models.py` and reproduce the selected demo
+    scenario (`scenario`, cf. `src.scenarios`), including the `RootCause`
+    reflection loop (1st pass low confidence, 2nd pass high confidence after
+    `GatherEvidence`).
     """
 
     def __init__(self, scenario: str = "db_pool") -> None:
@@ -544,7 +544,7 @@ class StubChatClient:
         prompt: str,
         response_model: type[T],
     ) -> T:
-        del instructions, prompt  # non utilises par le stub : reponses figees
+        del instructions, prompt  # unused by the stub: canned responses
 
         call_index = self._call_counts.get(agent_name, 0)
         self._call_counts[agent_name] = call_index + 1
@@ -552,13 +552,13 @@ class StubChatClient:
         try:
             scenario_responses = _STUB_RESPONSES[self._scenario]
         except KeyError as exc:
-            raise KeyError(f"Aucune reponse stub definie pour le scenario '{self._scenario}'") from exc
+            raise KeyError(f"No stub response defined for scenario '{self._scenario}'") from exc
 
         try:
             responses = scenario_responses[agent_name]
         except KeyError as exc:
             raise KeyError(
-                f"Aucune reponse stub definie pour l'agent '{agent_name}' (scenario '{self._scenario}')"
+                f"No stub response defined for agent '{agent_name}' (scenario '{self._scenario}')"
             ) from exc
 
         if isinstance(responses, list):
@@ -570,17 +570,17 @@ class StubChatClient:
 
 
 # ---------------------------------------------------------------------------
-# Client reel (Azure OpenAI / Microsoft Foundry)
+# Real client (Azure OpenAI / Microsoft Foundry)
 # ---------------------------------------------------------------------------
 
 
 class AzureOpenAIStructuredChatClient:
-    """Implementation reelle, basee sur `agent_framework.openai.OpenAIChatCompletionClient`.
+    """Real implementation, based on `agent_framework.openai.OpenAIChatCompletionClient`.
 
-    Un `Agent` distinct est cree (et mis en cache) par couple
-    `(agent_name, response_model)`, avec
-    `default_options={"response_format": response_model}` pour forcer une
-    sortie JSON conforme au schema pydantic attendu.
+    A distinct `Agent` is created (and cached) per `(agent_name,
+    response_model)` pair, with `default_options={"response_format":
+    response_model}` to force a JSON output matching the expected pydantic
+    schema.
     """
 
     def __init__(self, *, model: str, endpoint: str, api_version: str, credential: object) -> None:
@@ -605,12 +605,13 @@ class AzureOpenAIStructuredChatClient:
         key = (agent_name, response_model)
         agent = self._agents.get(key)
         if agent is None:
-            # id=agent_name (au lieu du uuid4 aleatoire par defaut, cf.
-            # agent_framework._agents.BaseAgent.__init__) : l'instrumentation OTel du
-            # framework source `gen_ai.agent.id` depuis `Agent.id`, pas `Agent.name`
-            # (agent_framework.observability.AgentTelemetryLayer). Un id stable est requis
-            # pour que les traces se rattachent a l'enregistrement External Agent Foundry
-            # (scripts/register_foundry_agents.py, docs/deployment.md #8.13).
+            # id=agent_name (instead of the random uuid4 default, cf.
+            # agent_framework._agents.BaseAgent.__init__): the framework's OTel
+            # instrumentation sources `gen_ai.agent.id` from `Agent.id`, not
+            # `Agent.name` (agent_framework.observability.AgentTelemetryLayer). A
+            # stable id is required for traces to attach to the Foundry External
+            # Agent registration (scripts/register_foundry_agents.py,
+            # docs/deployment.md #8.13).
             agent = self._chat_client.as_agent(
                 id=agent_name,
                 name=agent_name,
@@ -629,13 +630,13 @@ class AzureOpenAIStructuredChatClient:
 
 
 def get_chat_client(settings: Settings, *, light: bool, scenario: str = "db_pool") -> StructuredChatClient:
-    """Choisit le client structure : reel si Azure OpenAI est configure, sinon stub.
+    """Picks the structured client: real if Azure OpenAI is configured, stub otherwise.
 
-    `light=True` selectionne le deploiement "leger" (`AZURE_OPENAI_CHAT_DEPLOYMENT_LIGHT`,
-    ex. gpt-4o-mini) ; `light=False` selectionne le deploiement "fort"
-    (`AZURE_OPENAI_CHAT_DEPLOYMENT`, ex. gpt-4o) — voir SPEC.md section 2.
-    `scenario` ne s'applique qu'au stub hors-ligne (cf. `StubChatClient`) ; le
-    client reel n'en a pas besoin, le contenu venant du modele lui-meme.
+    `light=True` selects the "light" deployment (`AZURE_OPENAI_CHAT_DEPLOYMENT_LIGHT`,
+    e.g. gpt-4o-mini); `light=False` selects the "strong" deployment
+    (`AZURE_OPENAI_CHAT_DEPLOYMENT`, e.g. gpt-4o) — see SPEC.md section 2.
+    `scenario` only applies to the offline stub (cf. `StubChatClient`); the
+    real client doesn't need it, since the content comes from the model itself.
     """
 
     if not settings.use_real_azure_openai:
@@ -643,7 +644,7 @@ def get_chat_client(settings: Settings, *, light: bool, scenario: str = "db_pool
 
     from azure.identity import AzureCliCredential, DefaultAzureCredential
 
-    assert settings.azure_openai_endpoint is not None  # garanti par use_real_azure_openai
+    assert settings.azure_openai_endpoint is not None  # guaranteed by use_real_azure_openai
 
     credential = AzureCliCredential() if settings.azure_auth_mode == "cli" else DefaultAzureCredential()
     model = settings.azure_openai_chat_deployment_light if light else settings.azure_openai_chat_deployment

@@ -1,10 +1,10 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Graphe d'orchestration (`WorkflowBuilder`) du diagnostic d'incidents.
+"""Orchestration graph (`WorkflowBuilder`) for incident diagnosis.
 
-Construit la topologie decrite dans SPEC.md section 5 : sequence d'agents,
-boucle de reflexion bornee (RootCause <-> GatherEvidence) et porte de
-validation humaine (HITL) avant Remediation.
+Builds the topology described in SPEC.md section 5: agent sequence,
+bounded reflection loop (RootCause <-> GatherEvidence), and human
+validation gate (HITL) before Remediation.
 """
 
 from __future__ import annotations

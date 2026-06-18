@@ -1,181 +1,181 @@
-# Architecture & conception
+# Architecture & design
 
-> Vue d'ensemble de tous les composants et des principes de conception. Pour
-> les contrats JSON détaillés et les critères d'acceptation, voir `SPEC.md`.
-> Pour le détail des choix techniques et leur justification, voir
-> `DECISIONS.md`. Pour le fonctionnement interne (boucle de réflexion, HITL,
-> flux SSE), voir [`how-it-works.md`](how-it-works.md).
+> Overview of all components and design principles. For the detailed JSON
+> contracts and acceptance criteria, see `SPEC.md`. For the detailed
+> technical choices and their rationale, see `DECISIONS.md`. For the inner
+> workings (reflection loop, HITL, SSE flow), see
+> [`how-it-works.md`](how-it-works.md).
 
-## 1. Vue d'ensemble
+## 1. Overview
 
-Le projet est une démo d'un **système multi-agents orchestré** (Microsoft
-Agent Framework) qui diagnostique un incident sur un système de paiement :
+The project is a demo of an **orchestrated multi-agent system** (Microsoft
+Agent Framework) that diagnoses an incident on a payment system:
 
 ```
-logs bruts → incident structuré → précédents (RAG) → cause racine
-           → [boucle de réflexion si confiance insuffisante]
-           → validation humaine → plan de remédiation → rapport final
+raw logs → structured incident → precedents (RAG) → root cause
+           → [reflection loop if confidence is insufficient]
+           → human validation → remediation plan → final report
 ```
 
-Deux points d'entrée partagent le **même orchestrateur**
-(`src/orchestrator/graph.py`) :
+Two entry points share the **same orchestrator**
+(`src/orchestrator/graph.py`):
 
-- **CLI** (`python -m src.main`) — streaming texte dans le terminal,
-  approbation via `input()`.
-- **API + UI web** (FastAPI + React, `src/api/` + `frontend/`) — le même
-  graphe exposé en SSE, graphe d'orchestration animé, approbation via un
-  bouton, historique des exécutions persistées.
+- **CLI** (`python -m src.main`) — text streaming in the terminal,
+  approval via `input()`.
+- **API + web UI** (FastAPI + React, `src/api/` + `frontend/`) — the same
+  graph exposed over SSE, animated orchestration graph, approval via a
+  button, persisted run history.
 
-Le tout est déployable sur Azure via Bicep + Azure Developer CLI (`azd`,
+The whole thing is deployable on Azure via Bicep + Azure Developer CLI (`azd`,
 `infra/`).
 
-### Topologie du graphe d'orchestration
+### Orchestration graph topology
 
 ```
 LogAnalyzer -> IncidentExtractor -> KBSearch -> RootCause --[switch]--+
                       ^                                               |
-                      | confiance < seuil ET loop_count < max         | sinon
+                      | confidence < threshold AND loop_count < max   | else
                       +------------------ GatherEvidence <------------+
                                                                        v
                                                           HumanApproval (HITL)
-                                                                       | approuvé
+                                                                       | approved
                                                                        v
                                                       Remediation -> Summary
 ```
 
-Chaque nœud est un `Executor` du framework qui enveloppe soit un agent
-(`StructuredAgent`), soit (pour `HumanApproval`) une porte de validation pure.
-Les agents sont **sans état** et ne communiquent jamais directement entre
-eux : tout passe par l'**orchestrateur** et le **`SharedContext`**
-(`src/models.py`), un objet pydantic unique qui circule de nœud en nœud et
-accumule les résultats.
+Each node is a framework `Executor` that wraps either an agent
+(`StructuredAgent`), or (for `HumanApproval`) a pure validation gate.
+Agents are **stateless** and never communicate directly with each
+other: everything goes through the **orchestrator** and the **`SharedContext`**
+(`src/models.py`), a single pydantic object that travels from node to node and
+accumulates the results.
 
-## 2. Principes de conception (contraintes non négociables)
+## 2. Design principles (non-negotiable constraints)
 
-Ces contraintes viennent de `CLAUDE.md` et structurent l'ensemble du code :
+These constraints come from `CLAUDE.md` and structure the entire codebase:
 
-| # | Contrainte | Où c'est implémenté |
+| # | Constraint | Where it's implemented |
 |---|------------|----------------------|
-| 1 | Agents spécialisés, sans état, contrat I/O strict (JSON validé pydantic) | `src/agents/*.py` (`response_model`), `src/models.py` |
-| 2 | L'orchestrateur détient **tout** l'état partagé, les agents ne se parlent jamais | `SharedContext` (`src/models.py`) propagé par `ctx.send_message` |
-| 3 | Boucle de réflexion **bornée** (`MAX_REFLECTION_LOOPS`, défaut 2) | `needs_more_evidence` (`src/orchestrator/graph.py`) |
-| 4 | Sous `CONFIDENCE_THRESHOLD` (défaut 0.75), on reboucle au lieu de conclure | idem, basé sur `RootCauseHypothesis.confiance` |
-| 5 | **Aucune remédiation sans validation humaine** | `HumanApprovalExecutor` + `ctx.request_info()` (`src/orchestrator/executors.py`) |
-| 6 | La remédiation reste un **plan affiché**, jamais exécuté | `RemediationAgent` ne produit qu'un objet `RemediationPlan` ; aucun appel d'infrastructure réelle |
-| 7 | Aucun secret en clair (`.env` / variables d'env / Managed Identity / Key Vault) | `src/config.py` (`Settings`, pydantic-settings) ; `infra/` (`disableLocalAuth: true` + RBAC) |
+| 1 | Specialized, stateless agents, strict I/O contract (pydantic-validated JSON) | `src/agents/*.py` (`response_model`), `src/models.py` |
+| 2 | The orchestrator holds **all** shared state, agents never talk to each other | `SharedContext` (`src/models.py`) propagated via `ctx.send_message` |
+| 3 | **Bounded** reflection loop (`MAX_REFLECTION_LOOPS`, default 2) | `needs_more_evidence` (`src/orchestrator/graph.py`) |
+| 4 | Below `CONFIDENCE_THRESHOLD` (default 0.75), the loop reruns instead of concluding | same, based on `RootCauseHypothesis.confiance` |
+| 5 | **No remediation without human validation** | `HumanApprovalExecutor` + `ctx.request_info()` (`src/orchestrator/executors.py`) |
+| 6 | Remediation remains a **displayed plan**, never executed | `RemediationAgent` only produces a `RemediationPlan` object; no real infrastructure call |
+| 7 | No secrets in plaintext (`.env` / env vars / Managed Identity / Key Vault) | `src/config.py` (`Settings`, pydantic-settings); `infra/` (`disableLocalAuth: true` + RBAC) |
 
-## 3. Composants — vue d'ensemble
+## 3. Components — overview
 
-| Composant | Chemin | Rôle |
+| Component | Path | Role |
 |-----------|--------|------|
-| Agents (6) | `src/agents/` | Un module par agent : instructions (prompt système), contrat pydantic de sortie, fonction `build_prompt`. |
-| Base agent | `src/agents/base.py` | Classe générique `StructuredAgent[ResponseT]`. |
-| Clients de chat | `src/agents/clients.py` | `StubChatClient` (hors-ligne, déterministe) et `AzureOpenAIStructuredChatClient` (réel), choisis par `get_chat_client`. |
-| Contrats de données | `src/models.py` | Tous les modèles pydantic, dont `SharedContext` (état central). |
-| Orchestrateur — graphe | `src/orchestrator/graph.py` | `build_workflow(settings)` : assemble le `Workflow` (`WorkflowBuilder`). |
-| Orchestrateur — exécuteurs | `src/orchestrator/executors.py` | Un `Executor` par nœud du graphe (8 au total). |
-| Base de connaissances (RAG) | `src/tools/knowledge_base.py` | `LocalKnowledgeBase` (JSON local, Jaccard) / `AzureAISearchKnowledgeBase`. |
-| Persistance | `src/tools/persistence.py` | `LocalPersistenceStore` (fichiers JSON) / `CosmosPersistenceStore`. |
-| Configuration | `src/config.py` | `Settings` (pydantic-settings), seuils, modes, `REPO_ROOT`. |
-| CLI | `src/main.py` | Point d'entrée terminal : streaming + approbation `input()`. |
-| API | `src/api/` | FastAPI : `/api/runs` (SSE), `/api/history`, `/api/meta`, `/api/health`. |
-| Frontend | `frontend/` | React + Vite + TypeScript : graphe animé, cartes par étape, validation humaine, historique. |
-| Infrastructure | `infra/`, `azure.yaml` | Bicep + Azure Developer CLI : provisionnement Azure complet. |
+| Agents (6) | `src/agents/` | One module per agent: instructions (system prompt), pydantic output contract, `build_prompt` function. |
+| Agent base | `src/agents/base.py` | Generic `StructuredAgent[ResponseT]` class. |
+| Chat clients | `src/agents/clients.py` | `StubChatClient` (offline, deterministic) and `AzureOpenAIStructuredChatClient` (real), chosen by `get_chat_client`. |
+| Data contracts | `src/models.py` | All pydantic models, including `SharedContext` (central state). |
+| Orchestrator — graph | `src/orchestrator/graph.py` | `build_workflow(settings)`: assembles the `Workflow` (`WorkflowBuilder`). |
+| Orchestrator — executors | `src/orchestrator/executors.py` | One `Executor` per graph node (8 in total). |
+| Knowledge base (RAG) | `src/tools/knowledge_base.py` | `LocalKnowledgeBase` (local JSON, Jaccard) / `AzureAISearchKnowledgeBase`. |
+| Persistence | `src/tools/persistence.py` | `LocalPersistenceStore` (JSON files) / `CosmosPersistenceStore`. |
+| Configuration | `src/config.py` | `Settings` (pydantic-settings), thresholds, modes, `REPO_ROOT`. |
+| CLI | `src/main.py` | Terminal entry point: streaming + `input()` approval. |
+| API | `src/api/` | FastAPI: `/api/runs` (SSE), `/api/history`, `/api/meta`, `/api/health`. |
+| Frontend | `frontend/` | React + Vite + TypeScript: animated graph, per-step cards, human validation, history. |
+| Infrastructure | `infra/`, `azure.yaml` | Bicep + Azure Developer CLI: complete Azure provisioning. |
 
-## 4. Les 6 agents (`src/agents/`)
+## 4. The 6 agents (`src/agents/`)
 
-Chaque agent est une classe `StructuredAgent[ResponseT]` (voir §5) qui
-combine :
-- `name` — nom utilisé comme `agent_name` (clé du `StubChatClient`, nom de
-  l'`Agent` Azure OpenAI) ;
-- `instructions` — prompt système (toujours « réponds uniquement en JSON,
-  sans Markdown ») ;
-- `response_model` — le modèle pydantic de sortie (`src/models.py`) ;
-- `build_prompt(...)` — fonction qui construit le prompt utilisateur à partir
-  du `SharedContext`.
+Each agent is a `StructuredAgent[ResponseT]` class (see §5) that
+combines:
+- `name` — name used as `agent_name` (key in the `StubChatClient`, name of
+  the Azure OpenAI `Agent`);
+- `instructions` — system prompt (always "respond only in JSON,
+  without Markdown");
+- `response_model` — the pydantic output model (`src/models.py`);
+- `build_prompt(...)` — function that builds the user prompt from
+  the `SharedContext`.
 
 ### 4.1 `LogAnalyzer` (`src/agents/log_analyzer.py`)
 
-- **Rôle** : normalise les logs bruts en signal exploitable.
-- **Modèle suggéré** : léger (`gpt-4o-mini`).
-- **Entrée** (`build_prompt(raw_logs, *, focus=None)`) : les logs bruts, et
-  optionnellement une liste `focus` de points à investiguer en priorité
-  (utilisée par `GatherEvidence`, voir §6 de `how-it-works.md`).
-- **Sortie** : `LogAnalysis`
-  - `timeline: list[TimelineEvent]` — événements horodatés (`time`, `event`).
-  - `anomalies: list[str]` — saturations, pics de latence/erreur.
-  - `correlated_events: list[str]` — corrélations temporelles (ex.
-    déploiement → dégradation).
+- **Role**: normalizes the raw logs into actionable signal.
+- **Suggested model**: light (`gpt-4o-mini`).
+- **Input** (`build_prompt(raw_logs, *, focus=None)`): the raw logs, and
+  optionally a `focus` list of points to investigate as a priority
+  (used by `GatherEvidence`, see `how-it-works.md` §6).
+- **Output**: `LogAnalysis`
+  - `timeline: list[TimelineEvent]` — timestamped events (`time`, `event`).
+  - `anomalies: list[str]` — saturations, latency/error spikes.
+  - `correlated_events: list[str]` — temporal correlations (e.g.
+    deployment → degradation).
 
 ### 4.2 `IncidentExtractor` (`src/agents/incident_extractor.py`)
 
-- **Rôle** : transforme l'analyse de logs en objet incident structuré.
-- **Modèle suggéré** : léger.
-- **Entrée** (`build_prompt(log_analysis)`) : le `LogAnalysis` produit par
-  `LogAnalyzer`, sérialisé en JSON.
-- **Sortie** : `Incident`
+- **Role**: turns the log analysis into a structured incident object.
+- **Suggested model**: light.
+- **Input** (`build_prompt(log_analysis)`): the `LogAnalysis` produced by
+  `LogAnalyzer`, serialized as JSON.
+- **Output**: `Incident`
   - `titre: str`, `severite: str` (regex `^SEV-[1-5]$`),
     `services: list[str]`, `fenetre: str`, `symptomes: list[str]`.
 
 ### 4.3 `KBSearch` (`src/agents/kb_search.py`)
 
-- **Rôle** : recherche de précédents similaires (RAG) et reformatage de la
-  liste finale.
-- **Modèle suggéré** : léger.
-- **Particularité** : c'est le seul agent qui **surcharge `run()`**. Avant
-  d'appeler le LLM, il interroge directement
-  `KnowledgeBase.search(incident, top_k=2)` (§7.1) pour obtenir des
-  candidats avec un score de similarité brut, puis demande au LLM de
-  confirmer/formater la liste finale via `build_prompt(incident, candidates)`.
-- **Sortie** : `KBMatches` → `matches: list[KBMatch]`, chaque `KBMatch` ayant
+- **Role**: search for similar precedents (RAG) and reformat the final
+  list.
+- **Suggested model**: light.
+- **Particularity**: it's the only agent that **overrides `run()`**. Before
+  calling the LLM, it directly queries
+  `KnowledgeBase.search(incident, top_k=2)` (§7.1) to obtain
+  candidates with a raw similarity score, then asks the LLM to
+  confirm/format the final list via `build_prompt(incident, candidates)`.
+- **Output**: `KBMatches` → `matches: list[KBMatch]`, each `KBMatch` having
   `id`, `similarite` (0-1), `resolution`.
 
 ### 4.4 `RootCause` (`src/agents/root_cause.py`)
 
-- **Rôle** : l'agent **le plus important**. Formule la meilleure hypothèse de
-  cause racine, avec un score de confiance qui pilote la boucle de réflexion
-  de l'orchestrateur.
-- **Modèle suggéré** : fort (`gpt-4o`).
-- **Entrée** (`build_prompt(incident, log_analysis, kb_matches, *,
-  evidence_log=None)`) : l'incident, l'analyse de logs, les précédents KB, et
-  — au 2ᵉ passage — les preuves supplémentaires collectées par
+- **Role**: the **most important** agent. Formulates the best root-cause
+  hypothesis, with a confidence score that drives the orchestrator's
+  reflection loop.
+- **Suggested model**: strong (`gpt-4o`).
+- **Input** (`build_prompt(incident, log_analysis, kb_matches, *,
+  evidence_log=None)`): the incident, the log analysis, the KB precedents, and
+  — on the 2nd pass — the additional evidence collected by
   `GatherEvidence` (`evidence_log`).
-- **Sortie** : `RootCauseHypothesis`
+- **Output**: `RootCauseHypothesis`
   - `cause: str`, `raisonnement: str`, `confiance: float` (0-1),
-    `preuves_manquantes: list[str]` — rempli uniquement si `confiance` est
-    faible ; c'est cette liste que `GatherEvidence` utilise comme `focus`
-    pour `LogAnalyzer` au tour suivant.
+    `preuves_manquantes: list[str]` — filled in only if `confiance` is
+    low; this is the list `GatherEvidence` uses as `focus`
+    for `LogAnalyzer` on the next round.
 
 ### 4.5 `Remediation` (`src/agents/remediation.py`)
 
-- **Rôle** : propose un plan de remédiation priorisé. **Invoqué uniquement
-  après validation humaine** (porte HITL, §8.2 et `how-it-works.md` §4).
-- **Modèle suggéré** : fort.
-- **Entrée** (`build_prompt(incident, root_cause, kb_matches)`).
-- **Sortie** : `RemediationPlan` → trois listes `immediat`, `court_terme`,
-  `long_terme`. Ce plan est **uniquement affiché** — voir contrainte #6 du
-  §2 ; aucun exécuteur n'appelle une API d'infrastructure réelle.
+- **Role**: proposes a prioritized remediation plan. **Invoked only
+  after human validation** (HITL gate, §8.2 and `how-it-works.md` §4).
+- **Suggested model**: strong.
+- **Input** (`build_prompt(incident, root_cause, kb_matches)`).
+- **Output**: `RemediationPlan` → three lists `immediat`, `court_terme`,
+  `long_terme`. This plan is **only displayed** — see constraint #6 of
+  §2; no executor calls a real infrastructure API.
 
 ### 4.6 `Summary` (`src/agents/summary.py`)
 
-- **Rôle** : rédige le rapport d'incident final, prêt à coller dans un
+- **Role**: writes the final incident report, ready to paste into a
   post-mortem.
-- **Modèle suggéré** : léger.
-- **Entrée** (`build_prompt(incident, log_analysis, root_cause,
-  remediation_plan, kb_matches)`) : tout le contexte accumulé.
-- **Sortie** : `IncidentReport`
-  - Champs structurés : `titre`, `fenetre`, `impact`, `cause_racine`,
-    `confiance`, `remediation: list[str]` (fusion immédiat/court/long terme),
+- **Suggested model**: light.
+- **Input** (`build_prompt(incident, log_analysis, root_cause,
+  remediation_plan, kb_matches)`): the entire accumulated context.
+- **Output**: `IncidentReport`
+  - Structured fields: `titre`, `fenetre`, `impact`, `cause_racine`,
+    `confiance`, `remediation: list[str]` (merged immediate/short/long term),
     `precedent_lie: str | None`.
-  - `texte: str` — le rapport complet en texte brut, avec les sections
-    « CAUSE RACINE (confiance X) », « REMÉDIATION » (liste numérotée) et
-    « PRÉCÉDENT LIÉ ».
+  - `texte: str` — the full report in plain text, with the sections
+    "ROOT CAUSE (confidence X)", "REMEDIATION" (numbered list) and
+    "RELATED PRECEDENT".
 
-## 5. `StructuredAgent` et clients de chat
+## 5. `StructuredAgent` and chat clients
 
 ### 5.1 `StructuredAgent[ResponseT]` (`src/agents/base.py`)
 
-Classe générique minimaliste dont héritent les 6 agents :
+Minimal generic class inherited by all 6 agents:
 
 ```python
 class StructuredAgent(Generic[ResponseT]):
@@ -194,55 +194,56 @@ class StructuredAgent(Generic[ResponseT]):
         )
 ```
 
-Toute la différence entre « mode hors-ligne » et « Azure OpenAI réel » est
-encapsulée dans l'objet `client` injecté — les agents eux-mêmes sont
-identiques dans les deux modes.
+All the difference between "offline mode" and "real Azure OpenAI" is
+encapsulated in the injected `client` object — the agents themselves are
+identical in both modes.
 
 ### 5.2 `StructuredChatClient` (`src/agents/clients.py`)
 
-Protocole minimal : `get_structured_response(*, agent_name, instructions,
-prompt, response_model) -> ResponseT`. Deux implémentations :
+Minimal protocol: `get_structured_response(*, agent_name, instructions,
+prompt, response_model) -> ResponseT`. Two implementations:
 
-- **`StubChatClient`** — déterministe, **zéro appel réseau**. Pour chaque
-  `agent_name`, `_STUB_RESPONSES` contient soit une réponse unique rejouée à
-  chaque appel, soit une **liste** indexée par numéro d'appel (utilisée
-  uniquement pour `RootCause` et `LogAnalyzer`, afin de simuler la boucle de
-  réflexion : 1er appel confiance 0.55, 2e appel — après `GatherEvidence` —
-  confiance 0.88). Permet d'exécuter toute la démo et de vérifier les 8
-  critères d'acceptation (`SPEC.md` §8) **sans aucun identifiant Azure**.
-- **`AzureOpenAIStructuredChatClient`** — agents réels via
-  `agent_framework.openai.OpenAIChatCompletionClient.as_agent(...)`, avec
-  `default_options={"response_format": response_model}` pour forcer une
-  sortie JSON conforme au schéma pydantic. Un `Agent` est mis en cache par
-  couple `(agent_name, response_model)`.
+- **`StubChatClient`** — deterministic, **zero network calls**. For each
+  `agent_name`, `_STUB_RESPONSES` contains either a single response replayed on
+  every call, or a **list** indexed by call number (used only for
+  `RootCause` and `LogAnalyzer`, to simulate the reflection
+  loop: 1st call confidence 0.55, 2nd call — after `GatherEvidence` —
+  confidence 0.92). Lets the entire demo run and the 8
+  acceptance criteria (`SPEC.md` §8) be verified **with no Azure credentials at
+  all**.
+- **`AzureOpenAIStructuredChatClient`** — real agents via
+  `agent_framework.openai.OpenAIChatCompletionClient.as_agent(...)`, with
+  `default_options={"response_format": response_model}` to force a JSON
+  output conforming to the pydantic schema. An `Agent` is cached per
+  `(agent_name, response_model)` pair.
 
-`get_chat_client(settings, *, light: bool)` choisit automatiquement entre les
-deux selon `Settings.use_real_azure_openai` (vrai si
-`AZURE_OPENAI_ENDPOINT` est défini et n'est pas le placeholder de
-`.env.example`). `light=True` sélectionne le déploiement
-`AZURE_OPENAI_CHAT_DEPLOYMENT_LIGHT` (`gpt-4o-mini`), `light=False` le
-déploiement `AZURE_OPENAI_CHAT_DEPLOYMENT` (`gpt-4o`).
+`get_chat_client(settings, *, light: bool)` automatically picks between the
+two based on `Settings.use_real_azure_openai` (true if
+`AZURE_OPENAI_ENDPOINT` is set and is not the placeholder from
+`.env.example`). `light=True` selects the
+`AZURE_OPENAI_CHAT_DEPLOYMENT_LIGHT` deployment (`gpt-4o-mini`), `light=False`
+selects the `AZURE_OPENAI_CHAT_DEPLOYMENT` deployment (`gpt-4o`).
 
-## 6. Contrats de données (`src/models.py`)
+## 6. Data contracts (`src/models.py`)
 
-Tous les contrats sont des modèles **pydantic** ; les agents répondent
-**uniquement** en JSON validé contre ces schémas (jamais de Markdown autour).
+All contracts are **pydantic** models; agents respond
+**only** with JSON validated against these schemas (never any Markdown around it).
 
-| Modèle | Champs principaux | Produit par |
+| Model | Main fields | Produced by |
 |--------|---------------------|-------------|
-| `TimelineEvent` | `time`, `event` | (sous-objet de `LogAnalysis`) |
+| `TimelineEvent` | `time`, `event` | (sub-object of `LogAnalysis`) |
 | `LogAnalysis` | `timeline`, `anomalies`, `correlated_events` | `LogAnalyzer` |
 | `Incident` | `titre`, `severite` (`^SEV-[1-5]$`), `services`, `fenetre`, `symptomes` | `IncidentExtractor` |
 | `KBMatch` / `KBMatches` | `id`, `similarite`, `resolution` / `matches: list[KBMatch]` | `KBSearch` |
 | `RootCauseHypothesis` | `cause`, `raisonnement`, `confiance` (0-1), `preuves_manquantes` | `RootCause` |
 | `RemediationPlan` | `immediat`, `court_terme`, `long_terme` | `Remediation` |
 | `IncidentReport` | `titre`, `fenetre`, `impact`, `cause_racine`, `confiance`, `remediation`, `precedent_lie`, `texte` | `Summary` |
-| `RemediationApprovalRequest` | `incident`, `root_cause`, `kb_matches`, `message` | `HumanApprovalExecutor` (porte HITL) |
+| `RemediationApprovalRequest` | `incident`, `root_cause`, `kb_matches`, `message` | `HumanApprovalExecutor` (HITL gate) |
 
-### `SharedContext` — l'état central
+### `SharedContext` — the central state
 
-`SharedContext` est l'objet unique qui circule entre tous les exécuteurs (via
-`ctx.send_message`) et accumule les résultats :
+`SharedContext` is the single object that travels between all executors (via
+`ctx.send_message`) and accumulates the results:
 
 ```python
 class SharedContext(BaseModel):
@@ -259,155 +260,156 @@ class SharedContext(BaseModel):
     approved: bool | None = None
 ```
 
-- Les champs « ponctuels » (`log_analysis`, `incident`, `root_cause`, …) sont
-  **réassignés** à chaque passage — ils ne reflètent que la dernière valeur.
-- Les champs « cumulatifs » (`root_cause_history`, `evidence_log`) sont
-  **étendus** (`.append`/`.extend`) — ils conservent l'historique complet,
-  notamment les deux passages de `RootCause` en cas de boucle de réflexion.
-- `loop_count` est incrémenté par `GatherEvidenceExecutor` et c'est lui qui,
-  combiné à `confiance`, détermine la sortie de la boucle (voir
+- The "point-in-time" fields (`log_analysis`, `incident`, `root_cause`, …) are
+  **reassigned** on each pass — they only reflect the latest value.
+- The "cumulative" fields (`root_cause_history`, `evidence_log`) are
+  **extended** (`.append`/`.extend`) — they keep the complete history,
+  in particular the two `RootCause` passes in case of a reflection loop.
+- `loop_count` is incremented by `GatherEvidenceExecutor`, and it is this value,
+  combined with `confiance`, that determines the loop's exit (see
   `how-it-works.md` §3).
 
-Pour la propagation exacte (référence partagée vs copies, sémantique en
-streaming), voir `how-it-works.md` §1.
+For the exact propagation (shared reference vs copies, streaming
+semantics), see `how-it-works.md` §1.
 
-## 7. Outils (`src/tools/`)
+## 7. Tools (`src/tools/`)
 
-### 7.1 Base de connaissances RAG (`knowledge_base.py`)
+### 7.1 RAG knowledge base (`knowledge_base.py`)
 
-Interface `KnowledgeBase` : `async def search(incident, *, top_k=2) ->
+`KnowledgeBase` interface: `async def search(incident, *, top_k=2) ->
 list[KBMatch]`.
 
-- **`LocalKnowledgeBase`** (mode `KB_MODE=local`, par défaut) — lit
-  `data/knowledge_base.json` et calcule un **score de similarité de
-  Jaccard** entre le vocabulaire de l'incident courant (`services` +
-  `symptomes`) et celui de chaque précédent (`services` + `symptomes` +
-  `tags`). Avec seulement deux précédents et `top_k=2`, les deux sont
-  toujours retournés (critère d'acceptation 2 de `SPEC.md`).
-- **`AzureAISearchKnowledgeBase`** (mode `KB_MODE=azure_search`) — interroge
-  un index Azure AI Search via `azure.search.documents.aio.SearchClient`,
-  même interface.
+- **`LocalKnowledgeBase`** (mode `KB_MODE=local`, default) — reads
+  `data/knowledge_base.json` and computes a **Jaccard similarity
+  score** between the vocabulary of the current incident (`services` +
+  `symptomes`) and that of each precedent (`services` + `symptomes` +
+  `tags`). The knowledge base holds four past incidents; with `top_k=2`,
+  only the two highest-scoring matches are returned (acceptance criterion 2 of `SPEC.md`).
+- **`AzureAISearchKnowledgeBase`** (mode `KB_MODE=azure_search`) — queries
+  an Azure AI Search index via `azure.search.documents.aio.SearchClient`,
+  same interface.
 
-`get_knowledge_base(settings)` choisit selon `settings.kb_mode`.
+`get_knowledge_base(settings)` picks based on `settings.kb_mode`.
 
-### 7.2 Persistance (`persistence.py`)
+### 7.2 Persistence (`persistence.py`)
 
-Interface `PersistenceStore` : `save(record)`, `list_records(*, limit=20)`,
+`PersistenceStore` interface: `save(record)`, `list_records(*, limit=20)`,
 `get_record(run_id)`.
 
-- **`LocalPersistenceStore`** (par défaut, sans `COSMOS_ENDPOINT`) — un
-  fichier JSON par exécution sous `output/runs/`.
-- **`CosmosPersistenceStore`** (si `COSMOS_ENDPOINT` est défini) — un
-  document par exécution dans un conteneur Azure Cosmos DB (partition key
-  `/id`), via `azure.cosmos.aio.CosmosClient`. Le compte/base/conteneur sont
-  provisionnés par `infra/` ; le code ne fait que du plan de données.
+- **`LocalPersistenceStore`** (default, without `COSMOS_ENDPOINT`) — a
+  JSON file per run under `output/runs/`.
+- **`CosmosPersistenceStore`** (if `COSMOS_ENDPOINT` is set) — a
+  document per run in an Azure Cosmos DB container (partition key
+  `/id`), via `azure.cosmos.aio.CosmosClient`. The account/database/container are
+  provisioned by `infra/`; the code only does data-plane operations.
 
-`get_persistence_store(settings)` choisit selon `settings.cosmos_endpoint`.
-`IncidentRecord` (enregistrement complet, incl. `SharedContext`) et
-`IncidentRecordSummary` (vue résumée pour la liste d'historique) sont définis
-dans ce module.
+`get_persistence_store(settings)` picks based on `settings.cosmos_endpoint`.
+`IncidentRecord` (full record, incl. `SharedContext`) and
+`IncidentRecordSummary` (summarized view for the history list) are defined
+in this module.
 
-## 8. Orchestrateur (`src/orchestrator/`)
+## 8. Orchestrator (`src/orchestrator/`)
 
-Vue d'ensemble ici ; mécanique détaillée (boucle, HITL, propagation) dans
+Overview here; detailed mechanics (loop, HITL, propagation) in
 [`how-it-works.md`](how-it-works.md).
 
 ### 8.1 `graph.py` — `build_workflow(settings)`
 
-Construit le `Workflow` (`WorkflowBuilder(start_executor=log_analyzer,
-output_from="all")`) :
+Builds the `Workflow` (`WorkflowBuilder(start_executor=log_analyzer,
+output_from="all")`):
 
-1. Instancie `light_client`/`strong_client` (`get_chat_client`) et
+1. Instantiates `light_client`/`strong_client` (`get_chat_client`) and
    `knowledge_base` (`get_knowledge_base`).
-2. Instancie les 8 exécuteurs (un par nœud du graphe ; `log_analyzer_agent`
-   et `kb_search_agent` sont **partagés** entre le pipeline principal et
+2. Instantiates the 8 executors (one per graph node; `log_analyzer_agent`
+   and `kb_search_agent` are **shared** between the main pipeline and
    `GatherEvidenceExecutor`).
-3. Chaîne `log_analyzer -> incident_extractor -> kb_search -> root_cause`.
-4. Ajoute l'arête conditionnelle (`add_switch_case_edge_group`) après
-   `root_cause` : `Case(needs_more_evidence -> gather_evidence)`,
+3. Chains `log_analyzer -> incident_extractor -> kb_search -> root_cause`.
+4. Adds the conditional edge (`add_switch_case_edge_group`) after
+   `root_cause`: `Case(needs_more_evidence -> gather_evidence)`,
    `Default(-> human_approval)`.
-5. `add_edge(gather_evidence, root_cause)` ferme la boucle.
-6. Chaîne `human_approval -> remediation -> summary`.
+5. `add_edge(gather_evidence, root_cause)` closes the loop.
+6. Chains `human_approval -> remediation -> summary`.
 
-### 8.2 `executors.py` — les 8 exécuteurs
+### 8.2 `executors.py` — the 8 executors
 
-| Exécuteur | Agent enveloppé | Particularité |
+| Executor | Wrapped agent | Particularity |
 |-----------|------------------|----------------|
-| `LogAnalyzerExecutor` | `LogAnalyzerAgent` | premier nœud |
+| `LogAnalyzerExecutor` | `LogAnalyzerAgent` | first node |
 | `IncidentExtractorExecutor` | `IncidentExtractorAgent` | — |
 | `KBSearchExecutor` | `KBSearchAgent` | — |
-| `RootCauseExecutor` | `RootCauseAgent` | alimente `root_cause_history` |
-| `GatherEvidenceExecutor` | réutilise `LogAnalyzerAgent` + `KBSearchAgent` | incrémente `loop_count`, cible `preuves_manquantes` |
-| `HumanApprovalExecutor` | aucun (porte pure) | `ctx.request_info()` + `@response_handler`, état sur `self._context` |
-| `RemediationExecutor` | `RemediationAgent` | exécuté seulement si approuvé |
-| `SummaryExecutor` | `SummaryAgent` | terminal, `yield_output` seul |
+| `RootCauseExecutor` | `RootCauseAgent` | feeds `root_cause_history` |
+| `GatherEvidenceExecutor` | reuses `LogAnalyzerAgent` + `KBSearchAgent` | increments `loop_count`, targets `preuves_manquantes` |
+| `HumanApprovalExecutor` | none (pure gate) | `ctx.request_info()` + `@response_handler`, state on `self._context` |
+| `RemediationExecutor` | `RemediationAgent` | runs only if approved |
+| `SummaryExecutor` | `SummaryAgent` | terminal, `yield_output` only |
 
-Chaque exécuteur (sauf `SummaryExecutor` et le cas de refus de
-`HumanApprovalExecutor`) appelle `ctx.yield_output(context)` (pour
-l'observabilité en streaming) **puis** `ctx.send_message(context)` (pour
-avancer dans le graphe).
+Every executor (except `SummaryExecutor` and the rejection case of
+`HumanApprovalExecutor`) calls `ctx.yield_output(context)` (for
+streaming observability) **then** `ctx.send_message(context)` (to
+advance through the graph).
 
 ## 9. API (`src/api/`)
 
-FastAPI exposant `build_workflow` sur HTTP, consommée par le frontend React.
+FastAPI exposing `build_workflow` over HTTP, consumed by the React frontend.
 
-| Module | Rôle |
+| Module | Role |
 |--------|------|
-| `app.py` | `create_app()` : CORS (dev Vite), montage des routers sous `/api`, `GET /api/health`, et — en production — sert `frontend/dist/` via `StaticFiles` (même port, pas de CORS). |
-| `runs.py` | `POST /api/runs` et `POST /api/runs/{run_id}/approval` — les deux endpoints SSE qui pilotent le workflow. Registre en mémoire `app.state.runs: dict[str, RunState]`. |
-| `history.py` | `GET /api/history` (liste résumée) et `GET /api/history/{run_id}` (détail), via `PersistenceStore`. |
-| `meta.py` | `GET /api/meta` — paramètres non sensibles exposés à l'UI (`confidence_threshold`, `max_reflection_loops`, `kb_mode`, `use_real_azure_openai`, `cosmos_enabled`). |
-| `dependencies.py` | Indirection `settings_dependency`/`persistence_dependency` pour permettre aux tests de surcharger via `app.dependency_overrides`. |
-| `sse.py` | `sse_event(event, data)` — formate un message SSE (`event: ...\ndata: ...\n\n`). |
+| `app.py` | `create_app()`: CORS (Vite dev), mounts the routers under `/api`, `GET /api/health`, and — in production — serves `frontend/dist/` via `StaticFiles` (same port, no CORS). |
+| `runs.py` | `POST /api/runs` and `POST /api/runs/{run_id}/approval` — the two SSE endpoints that drive the workflow. In-memory registry `app.state.runs: dict[str, RunState]`. |
+| `history.py` | `GET /api/history` (summarized list) and `GET /api/history/{run_id}` (detail), via `PersistenceStore`. |
+| `meta.py` | `GET /api/meta` — non-sensitive settings exposed to the UI (`confidence_threshold`, `max_reflection_loops`, `kb_mode`, `use_real_azure_openai`, `cosmos_enabled`). |
+| `dependencies.py` | `settings_dependency`/`persistence_dependency` indirection to let tests override via `app.dependency_overrides`. |
+| `sse.py` | `sse_event(event, data)` — formats an SSE message (`event: ...\ndata: ...\n\n`). |
 
-Le détail du protocole SSE (événements, deux phases, gestion de l'état entre
-les deux appels HTTP) est dans `how-it-works.md` §5.
+The detail of the SSE protocol (events, two phases, state management between
+the two HTTP calls) is in `how-it-works.md` §5.
 
 ## 10. Frontend (`frontend/`)
 
-React + Vite + TypeScript. En dev, `vite.config.ts` proxy `/api` vers
-`127.0.0.1:8000` (pas de CORS) ; en prod, `frontend/dist/` est servi par
+React + Vite + TypeScript. In dev, `vite.config.ts` proxies `/api` to
+`127.0.0.1:8000` (no CORS); in prod, `frontend/dist/` is served by
 FastAPI (same-origin).
 
-| Fichier | Rôle |
+| File | Role |
 |---------|------|
-| `src/App.tsx` | État de la page (`phase`, `steps`, `approvalRequest`, …), branche les callbacks SSE sur `api.ts`, assemble les composants. |
-| `src/api.ts` | Client HTTP/SSE : `startRun`, `submitApproval` (parsent le flux `text/event-stream` via `fetch` + `ReadableStream`, car `EventSource` ne supporte pas POST), `fetchMeta`, `fetchHistory`, `fetchHistoryRecord`. |
-| `src/types.ts` | Types miroir 1:1 de `src/models.py` + réponses de `src/api/*.py`. Tenus à jour manuellement (un seul jeu de contrats côté backend). |
-| `src/components/TopologyGraph.tsx` | Anime le graphe à 8 nœuds (mirroir de `graph.py`) au fil des événements `step`. |
-| `src/components/StepCard.tsx` | Rendu détaillé de la sortie de chaque agent (timeline, anomalies, incident, précédents KB, cause racine + jauge de confiance, plan de remédiation, rapport). |
-| `src/components/ApprovalCard.tsx` | Porte HITL : affiche incident/cause/précédents/jauge de confiance, boutons Approuver/Refuser. |
-| `src/components/ConfidenceBar.tsx` | Jauge `confiance` vs `CONFIDENCE_THRESHOLD`. |
-| `src/components/Header.tsx` | Titre, onglets Démo/Historique, badges de configuration (`/api/meta`). |
-| `src/components/History.tsx` | Liste des exécutions passées + vue détail d'un enregistrement. |
+| `src/App.tsx` | Page state (`phase`, `steps`, `approvalRequest`, …), wires the SSE callbacks to `api.ts`, assembles the components. |
+| `src/api.ts` | HTTP/SSE client: `startRun`, `submitApproval` (parse the `text/event-stream` stream via `fetch` + `ReadableStream`, since `EventSource` doesn't support POST), `fetchMeta`, `fetchHistory`, `fetchHistoryRecord`. |
+| `src/types.ts` | Types mirroring `src/models.py` 1:1 + responses from `src/api/*.py`. Kept up to date manually (a single set of contracts lives on the backend side). |
+| `src/components/PipelineHUD.tsx` | SVG pipeline animation of the 8-node graph (mirrors `graph.py`): 6 agent nodes + the `GatherEvidence` loop node + the `HumanApproval` diamond, with a "Pipeline Status" readout and a RUN id badge, driven by `step` events. |
+| `src/components/ActivityFeed.tsx` | Scrolling "Orchestration Log" feed. |
+| `src/components/DetailPanel.tsx` | Detailed rendering of each agent's structured output, via internal per-executor views (`LogAnalysisView`, `IncidentView`, `KBMatchesView`, `RootCauseView`, `GatherEvidenceView`, `RemediationPlanView`, `SummaryView`, `RejectionView`). |
+| `src/components/ApprovalCard.tsx` | HITL gate: displays incident/cause/precedents/confidence gauge, Approve/Reject buttons. Embedded inside `DetailPanel` (not standalone). |
+| `src/components/ConfidenceBar.tsx` | `confiance` gauge vs `CONFIDENCE_THRESHOLD`. |
+| `src/components/Header.tsx` | Title, Live Run/History tabs, SoftwareOne/VivaTech branding. (No longer renders configuration badges from `/api/meta`.) |
+| `src/components/History.tsx` | List of past runs + detail view of a record. |
 
 ## 11. Infrastructure (`infra/`, `azure.yaml`)
 
-Provisionnement Azure via Bicep + Azure Developer CLI (`azd`). Détails et
-guide pas à pas dans [`deployment.md`](deployment.md) §Azure ; liste complète
-des ressources et rationale dans `DECISIONS.md` #21-22.
+Azure provisioning via Bicep + Azure Developer CLI (`azd`). Details and
+step-by-step guide in [`deployment.md`](deployment.md) §Azure; full list
+of resources and rationale in `DECISIONS.md` #21-22.
 
-| Fichier | Rôle |
+| File | Role |
 |---------|------|
-| `azure.yaml` | Déclare le service `api` (`language: docker`, `host: containerapp`, `docker.path: ./Dockerfile`). |
-| `infra/main.bicep` | Portée `subscription` : crée le resource group, calcule `resourceToken`, délègue à `resources.bicep`. |
-| `infra/resources.bicep` | Portée resource group : ~13 ressources (Log Analytics, App Insights, identité managée, Container Registry, Azure OpenAI + 2 déploiements, Azure AI Search, Cosmos DB serverless, Container Apps Environment + Container App) + role assignments. |
-| `infra/main.parameters.json` | Paramètres `azd` (`${AZURE_ENV_NAME}`, `${AZURE_LOCATION}`, `${AZURE_PRINCIPAL_ID}`). |
+| `azure.yaml` | Declares the `api` service (`language: docker`, `host: containerapp`, `docker.path: ./Dockerfile`). |
+| `infra/main.bicep` | `subscription` scope: creates the resource group, computes `resourceToken`, delegates to `resources.bicep`. |
+| `infra/resources.bicep` | Resource group scope: ~13 resources (Log Analytics, App Insights, managed identity, Container Registry, Azure OpenAI + 2 deployments, Azure AI Search, Cosmos DB serverless, Container Apps Environment + Container App) + role assignments. |
+| `infra/main.parameters.json` | `azd` parameters (`${AZURE_ENV_NAME}`, `${AZURE_LOCATION}`, `${AZURE_PRINCIPAL_ID}`). |
 
-## 12. Stack technique
+## 12. Technical stack
 
-| Domaine | Choix |
+| Domain | Choice |
 |---------|-------|
-| Langage backend | Python 3.11+ |
-| Orchestration agents | `agent-framework` (`WorkflowBuilder`, `Executor`, `ctx.request_info`) |
-| Modèles | Azure OpenAI — `gpt-4o` (fort), `gpt-4o-mini` (léger) ; mode hors-ligne via `StubChatClient` |
-| Validation des contrats | `pydantic` v2 |
+| Backend language | Python 3.11+ |
+| Agent orchestration | `agent-framework` (`WorkflowBuilder`, `Executor`, `ctx.request_info`) |
+| Models | Azure OpenAI — `gpt-4o` (strong), `gpt-4o-mini` (light); offline mode via `StubChatClient` |
+| Contract validation | `pydantic` v2 |
 | Configuration | `pydantic-settings` (`.env`) |
 | API | FastAPI + `uvicorn`, SSE (`text/event-stream`) |
 | Frontend | React + Vite + TypeScript |
-| RAG | `data/knowledge_base.json` (local) ou Azure AI Search |
-| Persistance | fichiers JSON locaux (`output/runs/`) ou Azure Cosmos DB |
-| Auth Azure | `AzureCliCredential` (local) / `DefaultAzureCredential` (déployé, Managed Identity) |
-| Conteneurisation | Dockerfile multi-étapes (build frontend + image Python) |
-| IaC / déploiement | Bicep + Azure Developer CLI (`azd`), Azure Container Apps |
-| Observabilité | Application Insights provisionné (OTel non encore câblé — voir « Pistes d'évolution » du `README.md`) |
+| RAG | `data/knowledge_base.json` (local) or Azure AI Search |
+| Persistence | local JSON files (`output/runs/`) or Azure Cosmos DB |
+| Azure auth | `AzureCliCredential` (local) / `DefaultAzureCredential` (deployed, Managed Identity) |
+| Containerization | multi-stage Dockerfile (frontend build + Python image) |
+| IaC / deployment | Bicep + Azure Developer CLI (`azd`), Azure Container Apps |
+| Observability | Application Insights provisioned, with OTel instrumentation wired via `configure_observability` whenever `APPLICATIONINSIGHTS_CONNECTION_STRING` is set (no-op in offline demo mode) |

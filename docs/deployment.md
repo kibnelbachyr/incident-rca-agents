@@ -1,25 +1,25 @@
-# Guide de déploiement
+# Deployment guide
 
-> Du poste local (mode hors-ligne, sans identifiants Azure) jusqu'à un
-> déploiement complet sur Azure Container Apps via `azd`. Pour la
-> configuration de la démo elle-même, voir [`demo-guide.md`](demo-guide.md).
+> From a local machine (offline mode, no Azure credentials) all the way to a
+> full deployment on Azure Container Apps via `azd`. For the demo's own
+> configuration, see [`demo-guide.md`](demo-guide.md).
 
-## 1. Prérequis
+## 1. Prerequisites
 
-| Scénario | Prérequis |
+| Scenario | Prerequisites |
 |----------|-----------|
-| Dev local, mode hors-ligne (`StubChatClient`) | Python 3.11+, Node.js 20+ (pour l'UI web) — **aucun identifiant Azure** |
-| Dev local contre Azure OpenAI / AI Search / Cosmos réels | + `az login` (CLI Azure), accès aux ressources |
-| Docker | Docker (build multi-étapes : Node 20 puis Python 3.11) |
-| Déploiement Azure | [Azure Developer CLI (`azd`)](https://aka.ms/azd), abonnement Azure |
+| Local dev, offline mode (`StubChatClient`) | Python 3.11+, Node.js 20+ (for the web UI) — **no Azure credentials** |
+| Local dev against real Azure OpenAI / AI Search / Cosmos | + `az login` (Azure CLI), access to the resources |
+| Docker | Docker (multi-stage build: Node 20 then Python 3.11) |
+| Azure deployment | [Azure Developer CLI (`azd`)](https://aka.ms/azd), Azure subscription |
 
-Aucun identifiant Azure n'est requis pour exécuter la démo : tant que
-`AZURE_OPENAI_ENDPOINT` n'est pas configuré avec un endpoint réel (ou reste
-le placeholder de `.env.example`), `Settings.use_real_azure_openai` est faux
-et tous les agents utilisent `StubChatClient` (`src/agents/clients.py`),
-déterministe et sans appel réseau.
+No Azure credentials are required to run the demo: as long as
+`AZURE_OPENAI_ENDPOINT` is not configured with a real endpoint (or stays the
+placeholder from `.env.example`), `Settings.use_real_azure_openai` is false
+and every agent uses `StubChatClient` (`src/agents/clients.py`), which is
+deterministic and makes no network calls.
 
-## 2. Développement local
+## 2. Local development
 
 ### 2.1 Installation
 
@@ -34,447 +34,449 @@ pip install -e ".[dev]"
 python -m src.main --logs data/payment-incident.log
 ```
 
-Streame chaque sortie d'agent, y compris la boucle de réflexion, puis
-s'arrête sur la porte HITL :
+Streams every agent output, including the reflection loop, then stops at the
+HITL gate:
 
 ```
-Approuver le passage à la remédiation ? [o/N] :
+Approve proceeding to remediation? [y/N]:
 ```
 
-- `o` / `oui` / `y` / `yes` → `RemediationPlan` puis `IncidentReport`
-  affichés.
-- Toute autre réponse (ou EOF / entrée non interactive) → arrêt immédiat,
-  sans plan ni rapport.
+- `y` / `yes` → `RemediationPlan` then `IncidentReport` displayed.
+- Any other answer (or EOF / non-interactive input) → immediate stop, no
+  plan or report.
 
-### 2.3 Interface web (FastAPI + React)
+### 2.3 Web interface (FastAPI + React)
 
-Deux process en développement :
+Two processes in development:
 
 ```bash
-# Terminal 1 : API (port 8000)
+# Terminal 1: API (port 8000)
 pip install -e ".[dev]"
 uvicorn src.api.app:app --reload
 
-# Terminal 2 : frontend (port 5173, proxy /api -> :8000 via vite.config.ts)
+# Terminal 2: frontend (port 5173, proxy /api -> :8000 via vite.config.ts)
 cd frontend
 npm install
 npm run dev
 ```
 
-Ouvrir http://localhost:5173 :
-- « Lancer le diagnostic » → `POST /api/runs` (SSE), anime
-  `TopologyGraph` au fil des événements `step`.
-- À la porte HITL, `ApprovalCard` s'affiche → Approuver/Refuser appelle
+Open http://localhost:5173:
+- "Run diagnosis" → `POST /api/runs` (SSE), animates the `PipelineHUD`
+  (8-node SVG pipeline: the six agents, the `GatherEvidence` loop node, and
+  the `HumanApproval` diamond) as `step` events arrive, with a scrolling
+  `ActivityFeed` ("Orchestration Log") alongside it, and a `DetailPanel`
+  showing each agent's detailed structured output.
+- At the HITL gate, the `ApprovalCard` (embedded inside `DetailPanel` at the
+  human-approval step) is displayed → Approve/Reject calls
   `POST /api/runs/{run_id}/approval`.
-- Onglet « Historique » → `GET /api/history` / `GET /api/history/{run_id}`
+- "History" tab → `GET /api/history` / `GET /api/history/{run_id}`
   (`src/tools/persistence.py`).
 
-## 3. Référence de configuration
+## 3. Configuration reference
 
-Toute la configuration passe par l'environnement / `.env` (voir
-`.env.example`), chargée par `src/config.py::Settings` (pydantic-settings).
-**Rien n'est codé en dur**, et `.env` reste hors du dépôt git
-(`.gitignore`) — seul `.env.example` est versionné.
+All configuration goes through the environment / `.env` (see
+`.env.example`), loaded by `src/config.py::Settings` (pydantic-settings).
+**Nothing is hardcoded**, and `.env` stays out of the git repo
+(`.gitignore`) — only `.env.example` is versioned.
 
-| Variable | Rôle | Défaut |
+| Variable | Role | Default |
 |----------|------|--------|
-| `AZURE_OPENAI_ENDPOINT` | Endpoint Azure OpenAI / Foundry. Absent ou placeholder → `StubChatClient` | _(aucun)_ |
-| `AZURE_OPENAI_CHAT_DEPLOYMENT` | Déploiement « fort » (`RootCause`, `Remediation`) | `gpt-4o` |
-| `AZURE_OPENAI_CHAT_DEPLOYMENT_LIGHT` | Déploiement « léger » (autres agents) | `gpt-4o-mini` |
-| `AZURE_OPENAI_API_VERSION` | Version d'API Azure OpenAI | `2024-10-21` |
-| `AZURE_AUTH_MODE` | `cli` (local, `az login` → `AzureCliCredential`) ou `managed_identity` (déployé → `DefaultAzureCredential`) | `cli` |
-| `AZURE_AI_SEARCH_ENDPOINT` | Endpoint Azure AI Search (mode `azure_search`) | _(aucun)_ |
-| `AZURE_AI_SEARCH_INDEX` | Nom de l'index Azure AI Search | `incident-kb` |
-| `KB_MODE` | `local` (`data/knowledge_base.json`) ou `azure_search` | `local` |
-| `COSMOS_ENDPOINT` | Endpoint Cosmos DB. Absent → persistance locale (`output/runs/`) | _(aucun)_ |
-| `COSMOS_DATABASE` | Base Cosmos DB | `incidents` |
-| `COSMOS_CONTAINER` | Conteneur Cosmos DB (partition key `/id`) | `records` |
-| `APPLICATIONINSIGHTS_CONNECTION_STRING` | Chaîne de connexion App Insights — active l'instrumentation OTel (`src/observability.py`, §8.12). Absent → no-op (mode hors-ligne) | _(aucun)_ |
-| `CONFIDENCE_THRESHOLD` | Seuil de confiance de `RootCause` | `0.75` |
-| `MAX_REFLECTION_LOOPS` | Nombre max de reboucles `RootCause ↔ GatherEvidence` | `2` |
-| `AZURE_FOUNDRY_PROJECT_ENDPOINT` | Endpoint du projet Microsoft Foundry (`scripts/register_foundry_agents.py` uniquement, §8.13 — sans rapport avec l'exécution des agents) | _(aucun)_ |
+| `AZURE_OPENAI_ENDPOINT` | Azure OpenAI / Foundry endpoint. Absent or placeholder → `StubChatClient` | _(none)_ |
+| `AZURE_OPENAI_CHAT_DEPLOYMENT` | "Strong" deployment (`RootCause`, `Remediation`) | `gpt-4o` |
+| `AZURE_OPENAI_CHAT_DEPLOYMENT_LIGHT` | "Light" deployment (other agents) | `gpt-4o-mini` |
+| `AZURE_OPENAI_API_VERSION` | Azure OpenAI API version | `2024-10-21` |
+| `AZURE_AUTH_MODE` | `cli` (local, `az login` → `AzureCliCredential`) or `managed_identity` (deployed → `DefaultAzureCredential`) | `cli` |
+| `AZURE_AI_SEARCH_ENDPOINT` | Azure AI Search endpoint (`azure_search` mode) | _(none)_ |
+| `AZURE_AI_SEARCH_INDEX` | Azure AI Search index name | `incident-kb` |
+| `KB_MODE` | `local` (`data/knowledge_base.json`) or `azure_search` | `local` |
+| `COSMOS_ENDPOINT` | Cosmos DB endpoint. Absent → local persistence (`output/runs/`) | _(none)_ |
+| `COSMOS_DATABASE` | Cosmos DB database | `incidents` |
+| `COSMOS_CONTAINER` | Cosmos DB container (partition key `/id`) | `records` |
+| `APPLICATIONINSIGHTS_CONNECTION_STRING` | App Insights connection string — enables OTel instrumentation (`src/observability.py`, §8.12). Absent → no-op (offline mode) | _(none)_ |
+| `CONFIDENCE_THRESHOLD` | `RootCause` confidence threshold | `0.75` |
+| `MAX_REFLECTION_LOOPS` | Max number of `RootCause ↔ GatherEvidence` reflection loops | `2` |
+| `AZURE_FOUNDRY_PROJECT_ENDPOINT` | Microsoft Foundry project endpoint (`scripts/register_foundry_agents.py` only, §8.13 — unrelated to actually running the agents) | _(none)_ |
 
-`GET /api/meta` expose à l'UI le sous-ensemble non sensible :
+`GET /api/meta` exposes the non-sensitive subset to the UI:
 `confidence_threshold`, `max_reflection_loops`, `kb_mode`,
 `use_real_azure_openai`, `cosmos_enabled`.
 
-## 4. Basculer vers Azure OpenAI (modèles réels)
+## 4. Switching to Azure OpenAI (real models)
 
-1. `az login` (mode `AZURE_AUTH_MODE=cli`, par défaut en local).
-2. Renseigner dans `.env` : `AZURE_OPENAI_ENDPOINT` (endpoint réel, ne
-   commençant pas par `https://<`) et les noms de déploiement
+1. `az login` (`AZURE_AUTH_MODE=cli` mode, the local default).
+2. Set in `.env`: `AZURE_OPENAI_ENDPOINT` (a real endpoint, not starting
+   with `https://<`) and the deployment names
    (`AZURE_OPENAI_CHAT_DEPLOYMENT`, `AZURE_OPENAI_CHAT_DEPLOYMENT_LIGHT`).
-3. `python -m src.main` (ou l'API) utilise alors
-   `AzureOpenAIStructuredChatClient` (`src/agents/clients.py`) — mêmes
-   agents, mêmes contrats pydantic, sorties JSON forcées via
+3. `python -m src.main` (or the API) then uses
+   `AzureOpenAIStructuredChatClient` (`src/agents/clients.py`) — same
+   agents, same pydantic contracts, JSON output forced via
    `response_format`.
 
-> Avec des modèles réels, les sorties (notamment les scores de `confiance`)
-> ne sont **plus garanties identiques** au scénario figé du
-> `StubChatClient` — voir [`demo-guide.md`](demo-guide.md) « Variante : Azure
-> OpenAI réel ».
+> With real models, the outputs (in particular the `confiance` scores) are
+> **no longer guaranteed to be identical** to the fixed `StubChatClient`
+> scenario — see [`demo-guide.md`](demo-guide.md) "Variant: real Azure
+> OpenAI".
 
-## 5. Basculer la base de connaissances vers Azure AI Search
+## 5. Switching the knowledge base to Azure AI Search
 
-1. Créer un index Azure AI Search et y charger `data/knowledge_base.json`
-   (voir `SPEC.md` §7 pour le schéma).
-2. Définir dans `.env` : `KB_MODE=azure_search`, `AZURE_AI_SEARCH_ENDPOINT`,
+1. Create an Azure AI Search index and load `data/knowledge_base.json`
+   into it (see `SPEC.md` §7 for the schema).
+2. Set in `.env`: `KB_MODE=azure_search`, `AZURE_AI_SEARCH_ENDPOINT`,
    `AZURE_AI_SEARCH_INDEX`.
-3. `get_knowledge_base()` (`src/tools/knowledge_base.py`) bascule
-   automatiquement sur `AzureAISearchKnowledgeBase`, qui implémente la même
-   interface `KnowledgeBase` que `LocalKnowledgeBase`.
+3. `get_knowledge_base()` (`src/tools/knowledge_base.py`) automatically
+   switches to `AzureAISearchKnowledgeBase`, which implements the same
+   `KnowledgeBase` interface as `LocalKnowledgeBase`.
 
-> Note : `azd up` provisionne l'index Azure AI Search **vide** (pas de
-> pipeline d'indexation). `KB_MODE` reste `local` même après déploiement,
-> tant que `data/knowledge_base.json` n'a pas été indexé manuellement —
-> sinon `KBSearch` ne retournerait aucun précédent (voir
+> Note: `azd up` provisions the Azure AI Search index **empty** (no
+> indexing pipeline). `KB_MODE` stays `local` even after deployment, as
+> long as `data/knowledge_base.json` has not been indexed manually —
+> otherwise `KBSearch` would return no precedent at all (see
 > `DECISIONS.md` #22).
 
-## 6. Persistance : locale vs Cosmos DB
+## 6. Persistence: local vs Cosmos DB
 
-- **Par défaut** (`COSMOS_ENDPOINT` absent) : `LocalPersistenceStore` écrit
-  un fichier JSON par exécution sous `output/runs/`.
-- **Si `COSMOS_ENDPOINT` est défini** : `CosmosPersistenceStore` (un
-  document par exécution, partition key `/id`). Le compte/la base/le
-  conteneur sont provisionnés par `infra/` (azd) — le code applicatif ne
-  fait que du plan de données (`upsert_item`/`read_item`/`query_items`).
+- **By default** (`COSMOS_ENDPOINT` absent): `LocalPersistenceStore` writes
+  one JSON file per run under `output/runs/`.
+- **If `COSMOS_ENDPOINT` is set**: `CosmosPersistenceStore` (one document
+  per run, partition key `/id`). The account/database/container are
+  provisioned by `infra/` (azd) — the application code only does data-plane
+  operations (`upsert_item`/`read_item`/`query_items`).
 
-## 7. Conteneurisation (Docker)
+## 7. Containerization (Docker)
 
 ```bash
 docker build -t incident-rca-agents .
 docker run --rm -it -p 8000:8000 incident-rca-agents
 ```
 
-Ouvrir http://localhost:8000 — l'image (build multi-étapes, `Dockerfile`)
-sert l'API **et** l'UI buildée (`frontend/dist/`) sur le même port via un
-seul process `uvicorn src.api.app:app`.
+Open http://localhost:8000 — the image (multi-stage build, `Dockerfile`)
+serves the API **and** the built UI (`frontend/dist/`) on the same port via
+a single `uvicorn src.api.app:app` process.
 
-- **Étape 1** (`node:20-slim`) : `npm ci && npm run build` dans
-  `frontend/` → produit `frontend/dist/`.
-- **Étape 2** (`python:3.11-slim`) : `pip install -e .` (garde
-  `src.config.REPO_ROOT` aligné sur `/app`, où `data/` est copié — les
-  chemins par défaut `data/payment-incident.log` et
-  `data/knowledge_base.json` fonctionnent sans configuration) puis copie
-  `frontend/dist/` depuis l'étape 1.
+- **Stage 1** (`node:20-slim`): `npm ci && npm run build` in `frontend/` →
+  produces `frontend/dist/`.
+- **Stage 2** (`python:3.11-slim`): `pip install -e .` (keeps
+  `src.config.REPO_ROOT` aligned with `/app`, where `data/` is copied — the
+  default paths `data/payment-incident.log` and `data/knowledge_base.json`
+  work with no configuration) then copies `frontend/dist/` from stage 1.
 
-`AZURE_AUTH_MODE=managed_identity` est défini par défaut dans l'image (pour
-un déploiement Container Apps avec identité managée). Pour pointer vers de
-vraies ressources Azure, passez les variables `AZURE_*` via `docker run -e
-...` ou les secrets Container Apps. En local hors-ligne (sans
-`AZURE_OPENAI_ENDPOINT`), `StubChatClient` est utilisé et **aucune variable
-n'est requise**.
+`AZURE_AUTH_MODE=managed_identity` is set by default in the image (for a
+Container Apps deployment with managed identity). To point at real Azure
+resources, pass the `AZURE_*` variables via `docker run -e ...` or
+Container Apps secrets. Locally, offline (without
+`AZURE_OPENAI_ENDPOINT`), `StubChatClient` is used and **no variable is
+required**.
 
-## 8. Déploiement sur Azure (`azd`) — guide pas à pas
+## 8. Deployment to Azure (`azd`) — step-by-step guide
 
-`infra/` (Bicep) + `azure.yaml` provisionnent l'architecture cible décrite
-par `CLAUDE.md` et déploient l'image Docker (§7) sur **Azure Container
-Apps**, en une seule commande (`azd up`). Cette section est un guide pas à
-pas, du compte Azure vierge jusqu'à l'URL publique.
+`infra/` (Bicep) + `azure.yaml` provision the target architecture described
+by `CLAUDE.md` and deploy the Docker image (§7) to **Azure Container
+Apps**, in a single command (`azd up`). This section is a step-by-step
+guide, from a blank Azure account all the way to the public URL.
 
-### 8.1 Avant de commencer (prérequis)
+### 8.1 Before you start (prerequisites)
 
-| Prérequis | Détail |
+| Prerequisite | Detail |
 |---|---|
-| Abonnement Azure | Droits suffisants pour créer un resource group et des role assignments (rôle *Owner*, ou *Contributor* + *User Access Administrator*, sur l'abonnement ou le resource group cible) |
-| **Accès et quota Azure OpenAI** | L'abonnement doit avoir l'accès Azure OpenAI activé, avec du quota **GlobalStandard** disponible pour `gpt-4o` *et* `gpt-4o-mini` (capacité 10 chacun — `infra/resources.bicep`). Sans ce quota, `azd up` échoue à l'étape de création des déploiements de modèles. Demande/vérification : Azure OpenAI Studio → *Quotas*, ou https://aka.ms/oai/access |
-| Région cible | Une région où ces déploiements **GlobalStandard** GPT-4o / GPT-4o-mini sont disponibles (ex. `swedencentral`, `eastus2`, `francecentral`) — vérifier la disponibilité courante dans la doc « Azure OpenAI Models » |
-| Outils locaux | [Azure Developer CLI (`azd`)](https://aka.ms/azd), Azure CLI (`az`), Docker (utilisé par `azd` pour builder l'image — sinon ACR Tasks en repli), Git |
+| Azure subscription | Sufficient rights to create a resource group and role assignments (*Owner* role, or *Contributor* + *User Access Administrator*, on the target subscription or resource group) |
+| **Azure OpenAI access and quota** | The subscription must have Azure OpenAI access enabled, with **GlobalStandard** quota available for `gpt-4o` *and* `gpt-4o-mini` (capacity 10 each — `infra/resources.bicep`). Without this quota, `azd up` fails at the model deployment creation step. Request/check: Azure OpenAI Studio → *Quotas*, or https://aka.ms/oai/access |
+| Target region | A region where these **GlobalStandard** GPT-4o / GPT-4o-mini deployments are available (e.g. `swedencentral`, `eastus2`, `francecentral`) — check current availability in the "Azure OpenAI Models" docs |
+| Local tools | [Azure Developer CLI (`azd`)](https://aka.ms/azd), Azure CLI (`az`), Docker (used by `azd` to build the image — falls back to ACR Tasks otherwise), Git |
 
-> Ces prérequis sont **au niveau de l'abonnement Azure**, indépendants du code
-> de ce repo : aucune quantité de Bicep ne peut provisionner un quota qui n'a
-> pas été accordé à l'abonnement.
+> These prerequisites are **at the Azure subscription level**, independent
+> of this repo's code: no amount of Bicep can provision a quota that hasn't
+> been granted to the subscription.
 
-### 8.2 Étape 1 — Authentification
+### 8.2 Step 1 — Authentication
 
 ```bash
 azd auth login
 ```
 
-Ouvre un navigateur pour l'authentification Microsoft Entra ID. Si le compte a
-accès à plusieurs abonnements, vérifier/sélectionner le bon (`az account
-show`, `az account set --subscription <id>`) avant l'étape suivante.
+Opens a browser for Microsoft Entra ID authentication. If the account has
+access to several subscriptions, check/select the right one (`az account
+show`, `az account set --subscription <id>`) before the next step.
 
-### 8.3 Étape 2 — Provisionner et déployer (`azd up`)
+### 8.3 Step 2 — Provision and deploy (`azd up`)
 
 ```bash
 azd up
 ```
 
-`azd up` = `azd provision` (infra) + `azd deploy` (application), en une seule
-commande. Au premier lancement, `azd` pose deux questions :
+`azd up` = `azd provision` (infra) + `azd deploy` (application), in a single
+command. On first run, `azd` asks two questions:
 
-| Invite | Exemple | Remarque |
+| Prompt | Example | Note |
 |---|---|---|
-| `Enter a new environment name` | `incident-rca-demo` | Préfixe des noms de ressources (`rg-incident-rca-demo`, etc.) — devient `AZURE_ENV_NAME` |
-| `Select an Azure location` | `swedencentral` | **Doit supporter GPT-4o / GPT-4o-mini GlobalStandard** (§8.1) — devient `AZURE_LOCATION` |
+| `Enter a new environment name` | `incident-rca-demo` | Prefix for resource names (`rg-incident-rca-demo`, etc.) — becomes `AZURE_ENV_NAME` |
+| `Select an Azure location` | `swedencentral` | **Must support GPT-4o / GPT-4o-mini GlobalStandard** (§8.1) — becomes `AZURE_LOCATION` |
 
-(Si l'abonnement compte plusieurs souscriptions, `azd` demande également
-laquelle utiliser.)
+(If the account has several subscriptions, `azd` also asks which one to
+use.)
 
-Déroulement (~10–15 minutes) :
+Flow (~10–15 minutes):
 
-1. **Provisioning** (`infra/main.bicep` → `infra/resources.bicep`, portée
-   abonnement) : crée `rg-<environnement>` puis les 20 ressources — Log
-   Analytics, Application Insights, identité managée, Container Registry,
-   Azure OpenAI + déploiements `gpt-4o`/`gpt-4o-mini`, Azure AI Search, Cosmos
-   DB (base `incidents` + conteneur `records`), Container Apps Environment et
-   Container App (image placeholder) — ainsi que tous les role assignments
-   RBAC (§8.6).
-2. **Build** : `docker build` sur le `Dockerfile` multi-étapes (frontend React
-   puis API FastAPI), ou build distant via ACR Tasks si Docker n'est pas
-   disponible localement.
-3. **Push** : l'image est poussée vers le Container Registry provisionné à
-   l'étape précédente.
-4. **Deploy** : nouvelle révision du Container App avec l'image réelle et les
-   variables d'environnement injectées automatiquement (§8.6).
+1. **Provisioning** (`infra/main.bicep` → `infra/resources.bicep`,
+   subscription scope): creates `rg-<environment>` then the 20 resources —
+   Log Analytics, Application Insights, managed identity, Container
+   Registry, Azure OpenAI + `gpt-4o`/`gpt-4o-mini` deployments, Azure AI
+   Search, Cosmos DB (`incidents` database + `records` container),
+   Container Apps Environment and Container App (placeholder image) — plus
+   all the RBAC role assignments (§8.6).
+2. **Build**: `docker build` on the multi-stage `Dockerfile` (React
+   frontend then FastAPI API), or a remote build via ACR Tasks if Docker
+   isn't available locally.
+3. **Push**: the image is pushed to the Container Registry provisioned in
+   the previous step.
+4. **Deploy**: new Container App revision with the real image and the
+   environment variables injected automatically (§8.6).
 
-À la fin, `azd up` affiche l'URL publique (`SERVICE_API_URI`), par exemple :
+At the end, `azd up` displays the public URL (`SERVICE_API_URI`), for
+example:
 
 ```
 https://api-xxxxxxxx.<region>.azurecontainerapps.io
 ```
 
-### 8.4 Étape 3 — Vérifier le déploiement
+### 8.4 Step 3 — Verify the deployment
 
-1. Ouvrir `SERVICE_API_URI` dans un navigateur → l'UI React (`frontend/dist/`,
-   servie par FastAPI) doit s'afficher.
+1. Open `SERVICE_API_URI` in a browser → the React UI (`frontend/dist/`,
+   served by FastAPI) should display.
 2. `GET /api/health` → `{"status": "ok"}`.
-3. `GET /api/meta` → `use_real_azure_openai: true` (les agents appellent
-   désormais Azure OpenAI réel via `AzureOpenAIStructuredChatClient`, et non
-   plus `StubChatClient`).
-4. Dans l'UI, « Lancer le diagnostic » → le graphe d'orchestration s'anime en
-   direct (SSE). Avec des modèles réels, les sorties (notamment les scores de
-   `confiance`) peuvent différer du scénario figé — voir
-   [`demo-guide.md`](demo-guide.md) « Variante : Azure OpenAI réel ».
-5. À la porte de validation humaine, approuver/refuser depuis l'UI
-   (`ApprovalCard`) comme décrit dans [`demo-guide.md`](demo-guide.md) §4.
+3. `GET /api/meta` → `use_real_azure_openai: true` (the agents now call
+   real Azure OpenAI via `AzureOpenAIStructuredChatClient`, no longer
+   `StubChatClient`).
+4. In the UI, "Run diagnosis" → the orchestration pipeline animates live
+   (SSE). With real models, the outputs (in particular the `confiance`
+   scores) may differ from the fixed scenario — see
+   [`demo-guide.md`](demo-guide.md) "Variant: real Azure OpenAI".
+5. At the human-approval gate, approve/reject from the UI (`ApprovalCard`)
+   as described in [`demo-guide.md`](demo-guide.md) §4.
 
-### 8.5 Ressources provisionnées (`infra/resources.bicep`)
+### 8.5 Provisioned resources (`infra/resources.bicep`)
 
-| Ressource | Type Azure | Rôle |
+| Resource | Azure type | Role |
 |-----------|------------|------|
-| Log Analytics workspace | `Microsoft.OperationalInsights/workspaces` | logs du Container Apps Environment |
-| Application Insights | `Microsoft.Insights/components` | observabilité : connection string injectée, OTel de l'Agent Framework câblé côté code (`src/observability.py`, §8.12) |
-| Identité managée (user-assigned) | `Microsoft.ManagedIdentity/userAssignedIdentities` | identité du Container App, porteuse des role assignments |
-| Container Registry | `Microsoft.ContainerRegistry/registries` (Basic) | images de l'API |
-| Azure OpenAI / Microsoft Foundry | `Microsoft.CognitiveServices/accounts` (kind `AIServices`, sku `S0`, `allowProjectManagement: true`) | + 2 déploiements : `gpt-4o` (`2024-11-20`) et `gpt-4o-mini` (`2024-07-18`), sku `GlobalStandard` |
-| Projet Microsoft Foundry | `Microsoft.CognitiveServices/accounts/projects` | sous-ressource du compte ci-dessus ; affiche l'orchestration `WorkflowBuilder` dans Observability > Traces une fois connecté à Application Insights (§8.12) |
-| Azure AI Search | `Microsoft.Search/searchServices` (sku `basic`) | base de connaissances RAG (index vide à la création) |
-| Azure Cosmos DB | `Microsoft.DocumentDB/databaseAccounts` (serverless) | base `incidents`, conteneur `records` (partition key `/id`) |
-| Container Apps Environment | `Microsoft.App/managedEnvironments` | environnement d'exécution |
-| Container App | `Microsoft.App/containerApps` | héberge l'API+UI, ingress externe port 8000, `azd-service-name: api` |
+| Log Analytics workspace | `Microsoft.OperationalInsights/workspaces` | Container Apps Environment logs |
+| Application Insights | `Microsoft.Insights/components` | observability: connection string injected, Agent Framework OTel wired on the code side (`src/observability.py`, §8.12) |
+| Managed identity (user-assigned) | `Microsoft.ManagedIdentity/userAssignedIdentities` | Container App identity, holder of the role assignments |
+| Container Registry | `Microsoft.ContainerRegistry/registries` (Basic) | API images |
+| Azure OpenAI / Microsoft Foundry | `Microsoft.CognitiveServices/accounts` (kind `AIServices`, sku `S0`, `allowProjectManagement: true`) | + 2 deployments: `gpt-4o` (`2024-11-20`) and `gpt-4o-mini` (`2024-07-18`), sku `GlobalStandard` |
+| Microsoft Foundry project | `Microsoft.CognitiveServices/accounts/projects` | sub-resource of the account above; shows the `WorkflowBuilder` orchestration in Observability > Traces once connected to Application Insights (§8.12) |
+| Azure AI Search | `Microsoft.Search/searchServices` (sku `basic`) | RAG knowledge base (empty index at creation) |
+| Azure Cosmos DB | `Microsoft.DocumentDB/databaseAccounts` (serverless) | `incidents` database, `records` container (partition key `/id`) |
+| Container Apps Environment | `Microsoft.App/managedEnvironments` | runtime environment |
+| Container App | `Microsoft.App/containerApps` | hosts the API+UI, external ingress port 8000, `azd-service-name: api` |
 
-### 8.6 Sécurité : aucun secret en clair
+### 8.6 Security: no secrets in plaintext
 
-`disableLocalAuth: true` sur Azure OpenAI **et** Cosmos DB désactive les clés
-API/maître. Toute l'authentification data-plane passe par des **role
-assignments Microsoft Entra ID**, accordés à l'identité managée du Container
-App :
+`disableLocalAuth: true` on Azure OpenAI **and** Cosmos DB disables
+API/master keys. All data-plane authentication goes through **Microsoft
+Entra ID role assignments**, granted to the Container App's managed
+identity:
 
-| Rôle | Cible | Usage |
+| Role | Target | Usage |
 |------|-------|-------|
-| `Cognitive Services OpenAI User` | Azure OpenAI | appels de complétion |
-| `Search Index Data Reader` | Azure AI Search | lecture de l'index RAG |
-| Cosmos DB *Built-in Data Contributor* (`00000000-0000-0000-0000-000000000002`) | Cosmos DB | lecture/écriture des enregistrements |
-| `AcrPull` | Container Registry | pull de l'image au démarrage |
+| `Cognitive Services OpenAI User` | Azure OpenAI | completion calls |
+| `Search Index Data Reader` | Azure AI Search | reading the RAG index |
+| Cosmos DB *Built-in Data Contributor* (`00000000-0000-0000-0000-000000000002`) | Cosmos DB | reading/writing records |
+| `AcrPull` | Container Registry | pulling the image at startup |
 
-Le Container App reçoit `AZURE_AUTH_MODE=managed_identity` et
-`AZURE_CLIENT_ID=<identity.clientId>` (pour que `DefaultAzureCredential`
-sélectionne cette identité). Un paramètre optionnel `principalId` (rempli
-par `azd` via `AZURE_PRINCIPAL_ID`) accorde les **mêmes rôles data-plane** au
-compte du développeur, pour pouvoir pointer un `.env` local
-(`AZURE_AUTH_MODE=cli`) vers les ressources réellement déployées (§8.7).
+The Container App receives `AZURE_AUTH_MODE=managed_identity` and
+`AZURE_CLIENT_ID=<identity.clientId>` (so that `DefaultAzureCredential`
+selects this identity). An optional `principalId` parameter (filled in by
+`azd` via `AZURE_PRINCIPAL_ID`) grants the **same data-plane roles** to the
+developer's account, to be able to point a local `.env`
+(`AZURE_AUTH_MODE=cli`) at the actually deployed resources (§8.7).
 
-> `Microsoft.App/containerApps` est configuré avec `scale: {minReplicas: 1,
-> maxReplicas: 1}` : `app.state.runs` (`src/api/runs.py`) est un registre en
-> mémoire par processus — plusieurs réplicas casseraient la reprise HITL
-> entre les deux appels SSE.
+> `Microsoft.App/containerApps` is configured with `scale: {minReplicas: 1,
+> maxReplicas: 1}`: `app.state.runs` (`src/api/runs.py`) is an in-memory,
+> per-process registry — multiple replicas would break HITL resumption
+> between the two SSE calls.
 
-### 8.7 Développer en local contre les ressources déployées
+### 8.7 Developing locally against the deployed resources
 
 ```bash
 azd env get-values >> .env   # AZURE_OPENAI_ENDPOINT, COSMOS_ENDPOINT, ...
-az login                      # AZURE_AUTH_MODE=cli (défaut) -> AzureCliCredential
+az login                      # AZURE_AUTH_MODE=cli (default) -> AzureCliCredential
 uvicorn src.api.app:app --reload
 ```
 
-`KB_MODE` reste `local` par défaut même après `azd up` (§8.9).
+`KB_MODE` stays `local` by default even after `azd up` (§8.9).
 
-### 8.8 Mettre à jour le déploiement après un changement de code
+### 8.8 Updating the deployment after a code change
 
 ```bash
-azd deploy   # rebuild + push + nouvelle révision du Container App (infra inchangée)
-# si infra/*.bicep a changé :
+azd deploy   # rebuild + push + new Container App revision (infra unchanged)
+# if infra/*.bicep has changed:
 azd up
 ```
 
-### 8.9 (Optionnel) Basculer la base de connaissances vers Azure AI Search
+### 8.9 (Optional) Switching the knowledge base to Azure AI Search
 
-L'index Azure AI Search est provisionné **vide** (§5) : `KB_MODE` reste
-`local` après déploiement et l'app utilise `data/knowledge_base.json` embarqué
-dans l'image. Pour activer la recherche RAG réelle :
+The Azure AI Search index is provisioned **empty** (§5): `KB_MODE` stays
+`local` after deployment and the app uses the `data/knowledge_base.json`
+bundled in the image. To enable real RAG search:
 
-1. Indexer `data/knowledge_base.json` dans l'index `incident-kb`
-   (`AZURE_AI_SEARCH_ENDPOINT`, schéma `SPEC.md` §7) — **étape manuelle, aucun
-   pipeline d'indexation dans le repo** (DECISIONS.md #22).
-2. Basculer le Container App sur `KB_MODE=azure_search` :
+1. Index `data/knowledge_base.json` into the `incident-kb` index
+   (`AZURE_AI_SEARCH_ENDPOINT`, schema in `SPEC.md` §7) — **manual step, no
+   indexing pipeline in the repo** (DECISIONS.md #22).
+2. Switch the Container App to `KB_MODE=azure_search`:
    ```bash
    azd env set KB_MODE azure_search
    azd deploy
    ```
-3. `get_knowledge_base()` (`src/tools/knowledge_base.py`) bascule
-   automatiquement sur `AzureAISearchKnowledgeBase`.
+3. `get_knowledge_base()` (`src/tools/knowledge_base.py`) automatically
+   switches to `AzureAISearchKnowledgeBase`.
 
-Sans l'étape 1, `KBSearch` ne retournerait aucun précédent — c'est pourquoi
-`KB_MODE` reste `local` par défaut après `azd up`.
+Without step 1, `KBSearch` would return no precedent at all — which is why
+`KB_MODE` stays `local` by default after `azd up`.
 
-### 8.10 Nettoyage
+### 8.10 Cleanup
 
 ```bash
-azd down            # supprime toutes les ressources de l'environnement (resource group inclus)
-azd down --purge    # + purge définitive des ressources à suppression différée (Azure OpenAI, Cosmos DB)
+azd down            # deletes all resources in the environment (including the resource group)
+azd down --purge    # + permanently purges soft-delete resources (Azure OpenAI, Cosmos DB)
 ```
 
-### 8.11 Dépannage
+### 8.11 Troubleshooting
 
-| Symptôme | Cause probable | Solution |
+| Symptom | Likely cause | Solution |
 |---|---|---|
-| `azd up` échoue sur `openAiChatDeployment` / `openAiChatDeploymentLight` (quota dépassé) | Pas de quota GlobalStandard pour GPT-4o/GPT-4o-mini dans la région choisie | Demander le quota dans Azure OpenAI Studio, ou choisir une autre région (§8.1) |
-| `azd up` échoue avec `ServiceModelDeprecating: ... is in deprecating state and cannot be used for new deployments` | La version du modèle figée dans `infra/resources.bicep` a été dépréciée par Microsoft entre-temps | Consulter le [Model Retirement Schedule](https://learn.microsoft.com/azure/ai-foundry/openai/concepts/model-retirement-schedule) et mettre à jour `properties.model.version` (ex. `gpt-4o` `2024-08-06`/`2024-05-13` → `2024-11-20`) dans `infra/resources.bicep`, puis relancer `azd up` |
-| `azd up` échoue sur `Microsoft.CognitiveServices/accounts` (accès refusé) | Accès Azure OpenAI non activé sur l'abonnement | Demander l'accès via https://aka.ms/oai/access |
-| `azd up` échoue sur les role assignments (`AuthorizationFailed`) | Le compte n'a pas le rôle *User Access Administrator* (ou *Owner*) sur l'abonnement/resource group | Demander ce rôle, ou faire provisionner par un admin disposant des droits |
-| `package-api` échoue avec `building image: signal: killed` pendant `npm run build` / `pip install` | `azd up` lance le build Docker **en parallèle** du provisioning (« Packaging overlaps with provisioning ») — sur une machine/conteneur avec peu de RAM, les deux ensemble déclenchent un OOM kill du build Docker | Relancer `azd provision` puis `azd deploy` séparément (séquentiel, pas de chevauchement), ou augmenter la mémoire allouée à Docker, ou relancer `azd up` (souvent transitoire / lié à l'état du cache) |
-| L'UI se charge mais `POST /api/runs` échoue ou les agents lèvent une erreur | Déploiements Azure OpenAI pas encore complètement propagés | Attendre quelques minutes puis réessayer, vérifier `GET /api/meta` |
-| `KBSearch` ne retourne aucun précédent malgré `KB_MODE=azure_search` | Index Azure AI Search vide (provisionné sans pipeline d'indexation) | Indexer `data/knowledge_base.json` (§8.9), ou revenir à `KB_MODE=local` |
-| `azd up` échoue sur `foundryProject` avec `BadRequest: ... To create projects, you must enable a managed identity on your resource` (et un message générique "A resource with this name already exists or is in a conflicting state") | Le compte `openAi` (`kind: AIServices`) **et** le sous-projet `foundryProject` (`Microsoft.CognitiveServices/accounts/projects`) doivent chacun avoir leur propre identité managée pour `allowProjectManagement: true` (DECISIONS.md #26, #27) — sur un environnement neuf, le compte peut réussir (avec son identité) pendant que le projet échoue juste après faute de la sienne | Déjà corrigé dans `infra/resources.bicep` (`identity: { type: 'SystemAssigned' }` sur `openAi` **et** sur `foundryProject`) ; vérifier que le checkout inclut ces deux fixes (`git log` → commits "managed identity on the AIServices account" et "managed identity on the Foundry project") puis relancer `azd provision`/`azd up`. Si l'erreur "already exists" persiste avec un checkout à jour, vérifier dans le portail (compte `aoai-${resourceToken}` → onglet *Projects*) qu'il n'y a pas de `proj-${resourceToken}` resté en état `Failed`, et le supprimer avant de relancer |
-| `azd up` échoue sur `Azure AI Services: aoai-${resourceToken}` ou sur le projet `proj-${resourceToken}` avec `FailedIdentityOperation: ... Status: 'Conflict'. ... is new, but resource already exists. This may be due to a pending delete operation, try again later` | Conflit transitoire côté fournisseur d'identités managées (MSI) lors de l'ajout d'une identité `SystemAssigned` à une ressource déjà existante (créée par un `azd up` précédent avant ce changement, sans identité) | Le bicep est correct (identité requise par `allowProjectManagement: true`, DECISIONS.md #26, #27) — c'est une erreur Azure transitoire. Solution rapide : portail → ressource concernée (`aoai-${resourceToken}` ou son projet) → **Identité** → **Affectée par le système** → **Activé** → Enregistrer, puis relancer `azd provision`/`azd up` (le bicep constatera que l'identité correspond déjà). Sinon, attendre quelques minutes (le temps que l'opération en attente côté Azure se termine) puis relancer `azd up` |
-| `azd provision`/`azd up` échoue très rapidement (< 2s) sur le compte `aoai-${resourceToken}` (« Foundry: aoai-... ») avec `BadRequest: PublicNetworkAccess is required for this resouce` (et le message générique "already exists or in a conflicting state") | Avec `allowProjectManagement: true` et un sous-projet ayant sa propre identité (DECISIONS.md #25, #27), Azure exige que `properties.publicNetworkAccess` du compte soit explicitement renseigné — il ne peut plus rester implicite | Déjà corrigé dans `infra/resources.bicep` (`publicNetworkAccess: 'Enabled'` sur `openAi`, DECISIONS.md #28) ; vérifier que le checkout est à jour (`git log` → commit "managed identity on the Foundry project" ou plus récent) puis relancer `azd provision`/`azd up` |
+| `azd up` fails on `openAiChatDeployment` / `openAiChatDeploymentLight` (quota exceeded) | No GlobalStandard quota for GPT-4o/GPT-4o-mini in the chosen region | Request the quota in Azure OpenAI Studio, or choose another region (§8.1) |
+| `azd up` fails with `ServiceModelDeprecating: ... is in deprecating state and cannot be used for new deployments` | The model version pinned in `infra/resources.bicep` was deprecated by Microsoft in the meantime | Check the [Model Retirement Schedule](https://learn.microsoft.com/azure/ai-foundry/openai/concepts/model-retirement-schedule) and update `properties.model.version` (e.g. `gpt-4o` `2024-08-06`/`2024-05-13` → `2024-11-20`) in `infra/resources.bicep`, then rerun `azd up` |
+| `azd up` fails on `Microsoft.CognitiveServices/accounts` (access denied) | Azure OpenAI access not enabled on the subscription | Request access via https://aka.ms/oai/access |
+| `azd up` fails on the role assignments (`AuthorizationFailed`) | The account doesn't have the *User Access Administrator* role (or *Owner*) on the subscription/resource group | Request that role, or have an admin with the right permissions provision it |
+| `package-api` fails with `building image: signal: killed` during `npm run build` / `pip install` | `azd up` runs the Docker build **in parallel** with provisioning ("Packaging overlaps with provisioning") — on a machine/container with little RAM, the two together trigger an OOM kill of the Docker build | Rerun `azd provision` then `azd deploy` separately (sequential, no overlap), or increase the memory allocated to Docker, or rerun `azd up` (often transient / tied to cache state) |
+| The UI loads but `POST /api/runs` fails or the agents raise an error | Azure OpenAI deployments not yet fully propagated | Wait a few minutes then retry, check `GET /api/meta` |
+| `KBSearch` returns no precedent despite `KB_MODE=azure_search` | Azure AI Search index empty (provisioned without an indexing pipeline) | Index `data/knowledge_base.json` (§8.9), or revert to `KB_MODE=local` |
+| `azd up` fails on `foundryProject` with `BadRequest: ... To create projects, you must enable a managed identity on your resource` (and a generic "A resource with this name already exists or is in a conflicting state" message) | The `openAi` account (`kind: AIServices`) **and** the `foundryProject` sub-project (`Microsoft.CognitiveServices/accounts/projects`) must each have their own managed identity for `allowProjectManagement: true` (DECISIONS.md #26, #27) — on a fresh environment, the account can succeed (with its identity) while the project fails right after for lack of its own | Already fixed in `infra/resources.bicep` (`identity: { type: 'SystemAssigned' }` on `openAi` **and** on `foundryProject`); check that the checkout includes both fixes (`git log` → commits "managed identity on the AIServices account" and "managed identity on the Foundry project") then rerun `azd provision`/`azd up`. If the "already exists" error persists with an up-to-date checkout, check in the portal (account `aoai-${resourceToken}` → *Projects* tab) that there isn't a `proj-${resourceToken}` stuck in `Failed` state, and delete it before rerunning |
+| `azd up` fails on `Azure AI Services: aoai-${resourceToken}` or on the `proj-${resourceToken}` project with `FailedIdentityOperation: ... Status: 'Conflict'. ... is new, but resource already exists. This may be due to a pending delete operation, try again later` | Transient conflict on the managed identity provider (MSI) side when adding a `SystemAssigned` identity to a resource that already exists (created by an earlier `azd up` before this change, without an identity) | The bicep is correct (identity required by `allowProjectManagement: true`, DECISIONS.md #26, #27) — this is a transient Azure error. Quick fix: portal → the resource in question (`aoai-${resourceToken}` or its project) → **Identity** → **System assigned** → **On** → Save, then rerun `azd provision`/`azd up` (the bicep will find the identity already matches). Otherwise, wait a few minutes (for the pending operation on the Azure side to finish) then rerun `azd up` |
+| `azd provision`/`azd up` fails very quickly (< 2s) on the `aoai-${resourceToken}` account ("Foundry: aoai-...") with `BadRequest: PublicNetworkAccess is required for this resouce` (and the generic "already exists or in a conflicting state" message) | With `allowProjectManagement: true` and a sub-project having its own identity (DECISIONS.md #25, #27), Azure requires the account's `properties.publicNetworkAccess` to be explicitly set — it can no longer stay implicit | Already fixed in `infra/resources.bicep` (`publicNetworkAccess: 'Enabled'` on `openAi`, DECISIONS.md #28); check that the checkout is up to date (`git log` → commit "managed identity on the Foundry project" or later) then rerun `azd provision`/`azd up` |
 
-### 8.12 Observabilité : tracer l'orchestration dans Microsoft Foundry
+### 8.12 Observability: tracing the orchestration in Microsoft Foundry
 
-`src/observability.py` (`configure_observability`, appelée au démarrage de
-`src.main` et `src.api.app`) câble l'instrumentation OpenTelemetry de l'Agent
-Framework vers Application Insights :
+`src/observability.py` (`configure_observability`, called at startup by
+`src.main` and `src.api.app`) wires the Agent Framework's OpenTelemetry
+instrumentation to Application Insights:
 
 ```python
 configure_azure_monitor(connection_string=settings.applicationinsights_connection_string)
 enable_instrumentation(enable_sensitive_data=settings.enable_sensitive_data)
 ```
 
-C'est un **no-op si `APPLICATIONINSIGHTS_CONNECTION_STRING` est vide** (mode
-hors-ligne / `StubChatClient`) : aucune dépendance réseau n'est ajoutée à la
-démo locale.
+It's a **no-op if `APPLICATIONINSIGHTS_CONNECTION_STRING` is empty** (offline
+mode / `StubChatClient`): no network dependency is added to the local demo.
 
-Après `azd up`, `APPLICATIONINSIGHTS_CONNECTION_STRING` est déjà injectée dans
-le Container App (§8.5/§8.6). Chaque `workflow.run()` (les six agents, la
-boucle de réflexion `RootCause <-> GatherEvidence`, la porte HITL
-`HumanApproval`) émet alors des spans `workflow.run` / `executor.process <id>`
-visibles dans Application Insights (Transaction search / Application map).
+After `azd up`, `APPLICATIONINSIGHTS_CONNECTION_STRING` is already injected
+into the Container App (§8.5/§8.6). Each `workflow.run()` (the six agents,
+the `RootCause <-> GatherEvidence` reflection loop, the `HumanApproval` HITL
+gate) then emits `workflow.run` / `executor.process <id>` spans visible in
+Application Insights (Transaction search / Application map).
 
-Pour les voir dans le **projet Microsoft Foundry** (`proj-${resourceToken}`,
-provisionné par `infra/resources.bicep`, sortie `AZURE_FOUNDRY_PROJECT_NAME`),
-connecter une fois la ressource Application Insights au projet — étape
-manuelle, non codifiée en Bicep (DECISIONS.md #25) :
+To see them in the **Microsoft Foundry project** (`proj-${resourceToken}`,
+provisioned by `infra/resources.bicep`, output `AZURE_FOUNDRY_PROJECT_NAME`),
+connect the Application Insights resource to the project once — a manual
+step, not codified in Bicep (DECISIONS.md #25):
 
-1. https://ai.azure.com → ouvrir le projet `proj-${resourceToken}`.
-2. **Agents** (ou **Observability**) → **Traces** → **Connect**.
-3. Sélectionner la ressource Application Insights existante (`appi-${resourceToken}`).
+1. https://ai.azure.com → open the `proj-${resourceToken}` project.
+2. **Agents** (or **Observability**) → **Traces** → **Connect**.
+3. Select the existing Application Insights resource (`appi-${resourceToken}`).
 
-Les traces apparaissent ensuite dans **Observability > Traces** du projet,
-avec un timeline par exécution montrant chaque agent, la boucle de réflexion
-et la porte HITL.
+The traces then appear in the project's **Observability > Traces**, with a
+per-run timeline showing each agent, the reflection loop, and the HITL gate.
 
-> `ENABLE_SENSITIVE_DATA=true` (`.env`, dev uniquement) inclut les
-> prompts/réponses des agents dans les traces — ne jamais l'activer en
-> production (données potentiellement sensibles).
+> `ENABLE_SENSITIVE_DATA=true` (`.env`, dev only) includes the agents'
+> prompts/responses in the traces — never enable it in production
+> (potentially sensitive data).
 
-### 8.13 Rendre les agents visibles dans le projet Microsoft Foundry
+### 8.13 Making the agents visible in the Microsoft Foundry project
 
-§8.12 rend l'**exécution** (les traces) visible dans Foundry une fois Application
-Insights connecté. `scripts/register_foundry_agents.py` complète cela en
-enregistrant les **six agents** comme entrées dans l'onglet **Agents** du projet
-Foundry (`proj-${resourceToken}`), pour qu'ils apparaissent par leur nom même
-avant toute exécution.
+§8.12 makes the **execution** (the traces) visible in Foundry once
+Application Insights is connected. `scripts/register_foundry_agents.py`
+complements this by registering the **six agents** as entries in the
+Foundry project's **Agents** tab (`proj-${resourceToken}`), so they appear
+by name even before any execution.
 
-Les agents tournent **hors de Foundry**, directement contre Azure OpenAI
-(`AZURE_OPENAI_ENDPOINT`) via le Microsoft Agent Framework — il n'existe pas
-d'exécution « native Foundry » dans cette démo. L'enregistrement utilise donc
-`ExternalAgentDefinition` (`azure-ai-projects`) : *« Represents a third-party
-agent hosted outside Foundry »*. C'est un enregistrement **metadata-only** —
-aucune ressource de calcul n'est créée, seule l'entrée apparaît dans l'UI.
+The agents run **outside of Foundry**, directly against Azure OpenAI
+(`AZURE_OPENAI_ENDPOINT`) via the Microsoft Agent Framework — there is no
+"native Foundry" execution in this demo. The registration therefore uses
+`ExternalAgentDefinition` (`azure-ai-projects`): *"Represents a third-party
+agent hosted outside Foundry"*. This is a **metadata-only** registration —
+no compute resource is created, only the entry appears in the UI.
 
-> Fonctionnalité **preview** d'`azure-ai-projects` (nécessite
-> `AIProjectClient(..., allow_preview=True)`) : l'API peut changer avant la GA.
+> **Preview** feature of `azure-ai-projects` (requires
+> `AIProjectClient(..., allow_preview=True)`): the API may change before GA.
 
-**Prérequis :**
+**Prerequisites:**
 
-1. `pip install -e ".[foundry]"` (groupe optionnel, séparé de `[dev]` — sans
-   rapport avec l'exécution/les tests de la démo elle-même).
-2. `AZURE_FOUNDRY_PROJECT_ENDPOINT` renseigné dans `.env` — déjà injecté après
-   `azd up` via `azd env get-values >> .env` (§8.7), ou récupérable dans le
-   portail Foundry (URL du projet).
-3. Authentification Azure : `az login` (`AZURE_AUTH_MODE=cli`, défaut local) ou
-   identité managée (`AZURE_AUTH_MODE=managed_identity`, déployé).
+1. `pip install -e ".[foundry]"` (optional group, separate from `[dev]` —
+   unrelated to running/testing the demo itself).
+2. `AZURE_FOUNDRY_PROJECT_ENDPOINT` set in `.env` — already injected after
+   `azd up` via `azd env get-values >> .env` (§8.7), or retrievable from the
+   Foundry portal (project URL).
+3. Azure authentication: `az login` (`AZURE_AUTH_MODE=cli`, local default) or
+   managed identity (`AZURE_AUTH_MODE=managed_identity`, deployed).
 
-**Exécution (une fois, après chaque changement de nom/description d'agent) :**
+**Execution (once, after every agent name/description change):**
 
 ```bash
 python -m scripts.register_foundry_agents
 ```
 
-Le script enregistre chaque agent sous son nom exact (`LogAnalyzer`,
+The script registers each agent under its exact name (`LogAnalyzer`,
 `IncidentExtractor`, `KBSearch`, `RootCause`, `Remediation`, `Summary`) —
-identique à l'`id` désormais stable passé à `as_agent()`
-(`src/agents/clients.py`), ce qui garantit que les traces (§8.12, attribut de
-span `gen_ai.agent.id`) se rattachent au bon agent enregistré dans Foundry.
+identical to the now-stable `id` passed to `as_agent()`
+(`src/agents/clients.py`), which guarantees that the traces (§8.12, span
+attribute `gen_ai.agent.id`) attach to the right agent registered in
+Foundry.
 
-Dans **https://ai.azure.com** → projet `proj-${resourceToken}` → **Agents**,
-les six agents apparaissent avec leur description ; **Observability > Traces**
-(§8.12) montre ensuite leurs exécutions une fois Application Insights connecté.
+In **https://ai.azure.com** → project `proj-${resourceToken}` → **Agents**,
+the six agents appear with their description; **Observability > Traces**
+(§8.12) then shows their executions once Application Insights is connected.
 
-> §8.12 rend déjà l'exécution complète (boucle de réflexion, porte HITL)
-> visible comme timeline dans **Observability > Traces**. §8.14 ci-dessous
-> enregistre en complément un second artefact, purement visuel, pour rendre
-> la **topologie** du graphe navigable dans l'onglet Agents.
+> §8.12 already makes the full execution (reflection loop, HITL gate)
+> visible as a timeline in **Observability > Traces**. §8.14 below
+> additionally registers a second, purely visual artifact to make the
+> graph's **topology** navigable in the Agents tab.
 
-### 8.14 Rendre le graphe d'orchestration visible dans le projet Microsoft Foundry
+### 8.14 Making the orchestration graph visible in the Microsoft Foundry project
 
-`scripts/register_foundry_workflow.py` enregistre l'orchestration comme un
-agent de type **Workflow** (`WorkflowAgentDefinition`), en complément des
-six agents (§8.13). Contrairement à ceux-ci, ce script enregistre un second
-artefact distinct : `scripts/foundry_workflow.yaml`, une définition **CSDL
-écrite à la main** qui reproduit la topologie de `src/orchestrator/graph.py`
-(séquence, boucle de réflexion bornée, porte HITL) afin qu'elle soit
-visible/navigable dans le canevas visuel du projet Foundry.
+`scripts/register_foundry_workflow.py` registers the orchestration as a
+**Workflow**-type agent (`WorkflowAgentDefinition`), in addition to the six
+agents (§8.13). Unlike those, this script registers a second, distinct
+artifact: `scripts/foundry_workflow.yaml`, a **hand-written CSDL**
+definition that reproduces the topology of `src/orchestrator/graph.py`
+(sequence, bounded reflection loop, HITL gate) so that it is
+visible/navigable in the Foundry project's visual canvas.
 
-> **Ce que ce YAML n'est pas :** il ne s'exécute pas réellement — pas
-> d'exportateur du `WorkflowBuilder` Python vers CSDL — et n'est pas
-> resynchronisé automatiquement si `src/orchestrator/graph.py` change
-> (seuil de confiance, nombre max de boucles, etc.). L'orchestration qui
-> tourne réellement reste 100% `src/orchestrator/graph.py` + `executors.py`.
-> Les six `InvokeAzureAgent` qu'il contient référencent les agents enregistrés
-> en `ExternalAgentDefinition` (§8.13) — des entrées metadata-only, sans
-> modèle/instructions côté Foundry — donc cliquer **« Run Workflow »** dans
-> le portail échouera probablement dès le premier appel d'agent. Seul
-> l'**affichage** du graphe (nœuds/arêtes/conditions) est garanti utile ;
-> voir DECISIONS.md #30 et l'en-tête de `foundry_workflow.yaml` pour le détail.
+> **What this YAML is not:** it does not actually execute — there is no
+> exporter from the Python `WorkflowBuilder` to CSDL — and it is not
+> automatically resynced if `src/orchestrator/graph.py` changes (confidence
+> threshold, max number of loops, etc.). The orchestration that actually
+> runs remains 100% `src/orchestrator/graph.py` + `executors.py`. The six
+> `InvokeAzureAgent` nodes it contains reference the agents registered as
+> `ExternalAgentDefinition` (§8.13) — metadata-only entries, with no
+> model/instructions on the Foundry side — so clicking **"Run Workflow"** in
+> the portal will probably fail on the very first agent call. Only the
+> **display** of the graph (nodes/edges/conditions) is guaranteed to be
+> useful; see DECISIONS.md #30 and the header of `foundry_workflow.yaml` for
+> details.
 
-**Prérequis :** identiques à §8.13, plus avoir déjà lancé
-`python -m scripts.register_foundry_agents` au moins une fois (les six
-agents référencés par `foundry_workflow.yaml` doivent déjà exister dans le
-projet).
+**Prerequisites:** same as §8.13, plus having already run
+`python -m scripts.register_foundry_agents` at least once (the six agents
+referenced by `foundry_workflow.yaml` must already exist in the project).
 
-**Exécution (une fois, après chaque modification de `foundry_workflow.yaml`) :**
+**Execution (once, after every change to `foundry_workflow.yaml`):**
 
 ```bash
 python -m scripts.register_foundry_workflow
 ```
 
-Dans **https://ai.azure.com** → projet `proj-${resourceToken}` → **Agents**,
-un agent `IncidentRCAWorkflow` de type Workflow apparaît, avec le graphe
-visible dans le canevas. Comme pour les agents (§8.13), relancer le script
-crée une nouvelle version (l'historique est conservé par Foundry).
+In **https://ai.azure.com** → project `proj-${resourceToken}` → **Agents**,
+a Workflow-type agent `IncidentRCAWorkflow` appears, with the graph visible
+in the canvas. As with the agents (§8.13), rerunning the script creates a
+new version (history is kept by Foundry).
 
 ## 9. Tests
 
@@ -483,15 +485,15 @@ pip install -e ".[dev]"
 pytest
 ```
 
-| Suite | Couverture |
+| Suite | Coverage |
 |-------|------------|
-| `tests/agents/` | un test isolé par agent (contrat d'entrée/sortie via `StubChatClient`) |
-| `tests/orchestrator/test_workflow.py` | bout-en-bout sur `data/payment-incident.log`, vérifie les **8 critères d'acceptation** de `SPEC.md` §8 |
-| `tests/api/test_runs.py` | les deux phases SSE de `/api/runs` (`run_started`/`step`/`approval_required`/`done`), approbation et refus |
+| `tests/agents/` | one isolated test per agent (input/output contract via `StubChatClient`) |
+| `tests/orchestrator/test_workflow.py` | end-to-end on `data/payment-incident.log`, checks the **8 acceptance criteria** from `SPEC.md` §8 |
+| `tests/api/test_runs.py` | the two SSE phases of `/api/runs` (`run_started`/`step`/`approval_required`/`done`), approval and rejection |
 | `tests/tools/test_persistence.py` | `LocalPersistenceStore` |
 
-Frontend :
+Frontend:
 
 ```bash
-cd frontend && npm run build   # tsc -b puis build Vite vers frontend/dist/
+cd frontend && npm run build   # tsc -b then Vite build to frontend/dist/
 ```

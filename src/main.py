@@ -1,22 +1,21 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Point d'entree CLI de la demo (SPEC.md section 9, etape 5).
+"""Demo CLI entry point (SPEC.md section 9, step 5).
 
 Usage::
 
     python -m src.main --logs data/payment-incident.log
 
-Injecte les logs dans le workflow d'orchestration (`src.orchestrator.build_workflow`)
-et streame les evenements (`workflow.run(message, stream=True)`) : la sortie de
-chaque agent est affichee des qu'elle est produite (SPEC.md critere
-d'acceptation 7), y compris la boucle de reflexion `RootCause <-> GatherEvidence`
-(critere 3/8).
+Feeds the logs into the orchestration workflow (`src.orchestrator.build_workflow`)
+and streams the events (`workflow.run(message, stream=True)`): each agent's output
+is printed as soon as it's produced (SPEC.md acceptance criterion 7), including the
+reflection loop `RootCause <-> GatherEvidence` (criterion 3/8).
 
-A la porte HITL (`request_info`, critere 5), la demo affiche la synthese de
-l'incident et de la cause racine retenue, puis demande une validation o/n sur
-l'entree standard avant de reprendre le workflow (`responses={request_id: bool}`).
-Sans approbation, aucun plan de remediation n'est genere ni affiche
-(critere 6 / DECISIONS.md #15).
+At the HITL gate (`request_info`, criterion 5), the demo prints the incident
+summary and the selected root cause, then asks for a y/n approval on standard
+input before resuming the workflow (`responses={request_id: bool}`).
+Without approval, no remediation plan is generated or displayed
+(criterion 6 / DECISIONS.md #15).
 """
 
 from __future__ import annotations
@@ -45,14 +44,14 @@ from src.scenarios import DEFAULT_SCENARIO, SCENARIOS, get_scenario
 SEPARATOR = "=" * 78
 
 _STEP_TITLES: dict[str, str] = {
-    "log_analyzer": "Agent 1/6 - LogAnalyzer : analyse des logs bruts",
-    "incident_extractor": "Agent 2/6 - IncidentExtractor : extraction de l'incident",
-    "kb_search": "Agent 3/6 - KBSearch : recherche de precedents",
-    "root_cause": "Agent 4/6 - RootCause : hypothese de cause racine",
-    "gather_evidence": "Boucle de reflexion - GatherEvidence : collecte de preuves complementaires",
-    "remediation": "Agent 5/6 - Remediation : plan de remediation (propose)",
-    "summary": "Agent 6/6 - Summary : rapport final",
-    "human_approval": "Validation humaine : remediation refusee",
+    "log_analyzer": "Agent 1/6 - LogAnalyzer: raw log analysis",
+    "incident_extractor": "Agent 2/6 - IncidentExtractor: incident extraction",
+    "kb_search": "Agent 3/6 - KBSearch: precedent search",
+    "root_cause": "Agent 4/6 - RootCause: root cause hypothesis",
+    "gather_evidence": "Reflection loop - GatherEvidence: collecting additional evidence",
+    "remediation": "Agent 5/6 - Remediation: remediation plan (proposed)",
+    "summary": "Agent 6/6 - Summary: final report",
+    "human_approval": "Human approval: remediation declined",
 }
 
 
@@ -64,72 +63,72 @@ def _print_header(title: str) -> None:
 
 
 def _print_log_analysis(data: LogAnalysis) -> None:
-    print("Timeline reconstituee :")
+    print("Reconstructed timeline:")
     for event in data.timeline:
         print(f"  - {event.time}  {event.event}")
-    print("Anomalies detectees :")
+    print("Detected anomalies:")
     for anomaly in data.anomalies:
         print(f"  - {anomaly}")
-    print("Evenements correles :")
+    print("Correlated events:")
     for item in data.correlated_events:
         print(f"  - {item}")
 
 
 def _print_incident(data: Incident) -> None:
-    print(f"Titre     : {data.titre}")
-    print(f"Severite  : {data.severite}")
-    print(f"Services  : {', '.join(data.services)}")
-    print(f"Fenetre   : {data.fenetre}")
-    print("Symptomes :")
+    print(f"Title    : {data.titre}")
+    print(f"Severity : {data.severite}")
+    print(f"Services : {', '.join(data.services)}")
+    print(f"Window   : {data.fenetre}")
+    print("Symptoms :")
     for symptome in data.symptomes:
         print(f"  - {symptome}")
 
 
 def _print_kb_matches(data: KBMatches) -> None:
     if not data.matches:
-        print("Aucun precedent trouve dans la base de connaissances.")
+        print("No precedent found in the knowledge base.")
         return
-    print("Precedents trouves :")
+    print("Precedents found:")
     for match in data.matches:
-        print(f"  - {match.id}  (similarite={match.similarite:.2f})")
-        print(f"    -> resolution : {match.resolution}")
+        print(f"  - {match.id}  (similarity={match.similarite:.2f})")
+        print(f"    -> resolution: {match.resolution}")
 
 
 def _print_root_cause(data: RootCauseHypothesis, settings: Settings, *, loop_count: int) -> None:
-    print(f"Cause retenue : {data.cause}")
-    print(f"Raisonnement  : {data.raisonnement}")
-    print(f"Confiance     : {data.confiance:.2f}  (seuil = {settings.confidence_threshold})")
+    print(f"Selected cause : {data.cause}")
+    print(f"Reasoning      : {data.raisonnement}")
+    print(f"Confidence     : {data.confiance:.2f}  (threshold = {settings.confidence_threshold})")
     if data.confiance < settings.confidence_threshold:
         print(
-            f"-> Confiance sous le seuil : l'orchestrateur reboucle pour "
-            f"chercher des preuves (passage {loop_count + 1}/{settings.max_reflection_loops})."
+            f"-> Confidence below threshold: the orchestrator loops back to "
+            f"gather more evidence (pass {loop_count + 1}/{settings.max_reflection_loops})."
         )
-        print("Preuves manquantes a collecter :")
+        print("Missing evidence to collect:")
         for preuve in data.preuves_manquantes:
             print(f"  - {preuve}")
     else:
-        print("-> Confiance suffisante : l'orchestrateur passe a la validation humaine.")
+        print("-> Confidence sufficient: the orchestrator proceeds to human approval.")
 
 
 def _print_gather_evidence(context: SharedContext, settings: Settings) -> None:
     assert context.log_analysis is not None
-    print(f"Reboucle {context.loop_count}/{settings.max_reflection_loops} : LogAnalyzer et KBSearch re-sollicites.")
-    print("Nouveaux evenements correles :")
+    print(f"Loop {context.loop_count}/{settings.max_reflection_loops}: LogAnalyzer and KBSearch re-invoked.")
+    print("New correlated events:")
     for item in context.log_analysis.correlated_events:
         print(f"  - {item}")
     if context.kb_matches is not None and context.kb_matches.matches:
         precedents = ", ".join(match.id for match in context.kb_matches.matches)
-        print(f"Base de connaissances reconfrontee : {precedents}")
+        print(f"Knowledge base re-checked: {precedents}")
 
 
 def _print_remediation(data: RemediationPlan) -> None:
-    print("Immediat :")
+    print("Immediate:")
     for item in data.immediat:
         print(f"  - {item}")
-    print("Court terme :")
+    print("Short term:")
     for item in data.court_terme:
         print(f"  - {item}")
-    print("Long terme :")
+    print("Long term:")
     for item in data.long_terme:
         print(f"  - {item}")
 
@@ -163,30 +162,30 @@ def _print_step_output(executor_id: str, context: SharedContext, settings: Setti
         print()
         _print_report(context.report)
     elif executor_id == "human_approval":
-        print("L'humain a refuse la remediation : le workflow s'arrete ici.")
-        print("Aucun plan de remediation n'est genere ni affiche (CLAUDE.md).")
+        print("The human declined remediation: the workflow stops here.")
+        print("No remediation plan is generated or displayed (CLAUDE.md).")
 
 
 def _ask_approval(request: RemediationApprovalRequest) -> bool:
-    _print_header("Validation humaine requise avant remediation")
-    print(f"Incident       : {request.incident.titre} ({request.incident.severite})")
-    print(f"Services       : {', '.join(request.incident.services)}")
-    print(f"Cause retenue  : {request.root_cause.cause}")
-    print(f"Confiance      : {request.root_cause.confiance:.2f}")
+    _print_header("Human approval required before remediation")
+    print(f"Incident           : {request.incident.titre} ({request.incident.severite})")
+    print(f"Services           : {', '.join(request.incident.services)}")
+    print(f"Selected cause     : {request.root_cause.cause}")
+    print(f"Confidence         : {request.root_cause.confiance:.2f}")
     if request.kb_matches.matches:
         precedents = ", ".join(match.id for match in request.kb_matches.matches)
-        print(f"Precedents lies : {precedents}")
+        print(f"Related precedents : {precedents}")
     print()
     print(request.message)
-    print("Rappel : la remediation reste un plan affiche, aucune action n'est executee (CLAUDE.md).")
+    print("Reminder: remediation stays a displayed plan, no action is ever executed (CLAUDE.md).")
 
     try:
-        answer = input("Approuver le passage a la remediation ? [o/N] : ")
+        answer = input("Approve proceeding to remediation? [y/N]: ")
     except EOFError:
-        print("(entree non interactive : refus par defaut)")
+        print("(non-interactive input: declined by default)")
         return False
 
-    return answer.strip().lower() in {"o", "oui", "y", "yes"}
+    return answer.strip().lower() in {"y", "yes"}
 
 
 async def run_demo(log_path: Path, *, scenario: str = DEFAULT_SCENARIO) -> None:
@@ -195,13 +194,13 @@ async def run_demo(log_path: Path, *, scenario: str = DEFAULT_SCENARIO) -> None:
     workflow = build_workflow(settings, scenario=scenario)
     raw_logs = log_path.read_text(encoding="utf-8")
 
-    _print_header("DEMO - Diagnostic multi-agents d'un incident de paiement")
-    print(f"Scenario               : {scenario}")
-    print(f"Logs source           : {log_path}")
-    print(f"Seuil de confiance    : {settings.confidence_threshold}")
-    print(f"Boucles de reflexion max : {settings.max_reflection_loops}")
-    print(f"Base de connaissances : {settings.kb_mode}")
-    print(f"Modeles               : {'Azure OpenAI' if settings.use_real_azure_openai else 'StubChatClient (hors ligne)'}")
+    _print_header("DEMO - Multi-agent diagnosis of a payment incident")
+    print(f"Scenario                : {scenario}")
+    print(f"Source logs             : {log_path}")
+    print(f"Confidence threshold    : {settings.confidence_threshold}")
+    print(f"Max reflection loops    : {settings.max_reflection_loops}")
+    print(f"Knowledge base          : {settings.kb_mode}")
+    print(f"Models                  : {'Azure OpenAI' if settings.use_real_azure_openai else 'StubChatClient (offline)'}")
 
     pending_request: WorkflowEvent | None = None
 
@@ -214,8 +213,8 @@ async def run_demo(log_path: Path, *, scenario: str = DEFAULT_SCENARIO) -> None:
     await stream.get_final_response()
 
     if pending_request is None:
-        _print_header("FIN")
-        print("Le workflow s'est termine sans demander de validation humaine (etat inattendu).")
+        _print_header("END")
+        print("The workflow finished without requesting human approval (unexpected state).")
         return
 
     approved = _ask_approval(pending_request.data)
@@ -226,26 +225,26 @@ async def run_demo(log_path: Path, *, scenario: str = DEFAULT_SCENARIO) -> None:
             _print_step_output(event.executor_id, event.data, settings)
     await stream.get_final_response()
 
-    _print_header("FIN")
+    _print_header("END")
     if approved:
-        print("Demo terminee : rapport final affiche ci-dessus.")
+        print("Demo finished: final report displayed above.")
     else:
-        print("Demo terminee : remediation non executee (refus humain).")
+        print("Demo finished: remediation not executed (declined by human).")
 
 
 def _parse_args(argv: list[str] | None = None) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Demo d'analyse multi-agents d'un incident de paiement.")
+    parser = argparse.ArgumentParser(description="Multi-agent payment incident analysis demo.")
     parser.add_argument(
         "--scenario",
         choices=sorted(SCENARIOS),
         default=DEFAULT_SCENARIO,
-        help="Scenario de demo a executer (defaut : %(default)s).",
+        help="Demo scenario to run (default: %(default)s).",
     )
     parser.add_argument(
         "--logs",
         type=Path,
         default=None,
-        help="Chemin du fichier de logs a injecter (defaut : logs du scenario choisi via --scenario).",
+        help="Path to the log file to inject (default: the chosen scenario's logs via --scenario).",
     )
     return parser.parse_args(argv)
 

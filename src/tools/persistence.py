@@ -1,18 +1,18 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Persistance des executions terminees (SPEC.md section 7, Cosmos DB optionnel).
+"""Persistence of finished runs (SPEC.md section 7, Cosmos DB optional).
 
-Deux implementations partagent l'interface `PersistenceStore` :
+Two implementations share the `PersistenceStore` interface:
 
-- `LocalPersistenceStore` : un fichier JSON par execution dans `output/runs/`
-  (mode hors-ligne, par defaut pour la demo - DECISIONS.md #3).
-- `CosmosPersistenceStore` : un document par execution dans un conteneur
-  Azure Cosmos DB (mode deploye, `COSMOS_ENDPOINT` defini).
+- `LocalPersistenceStore`: one JSON file per run in `output/runs/`
+  (offline mode, default for the demo - DECISIONS.md #3).
+- `CosmosPersistenceStore`: one document per run in an Azure Cosmos DB
+  container (deployed mode, `COSMOS_ENDPOINT` set).
 
-`get_persistence_store(settings)` choisit l'implementation selon
-`settings.cosmos_endpoint`. L'API (`src/api/runs.py`) appelle `save()` une
-fois l'execution terminee (approuvee ou refusee) ; `list_records`/
-`get_record` alimentent l'historique consulte depuis l'UI.
+`get_persistence_store(settings)` picks the implementation based on
+`settings.cosmos_endpoint`. The API (`src/api/runs.py`) calls `save()` once
+the run is finished (approved or rejected); `list_records`/`get_record`
+feed the history viewed from the UI.
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from src.models import SharedContext
 
 
 class IncidentRecord(BaseModel):
-    """Une execution terminee, telle que persistee pour l'historique de l'UI."""
+    """A finished run, as persisted for the UI history."""
 
     id: str
     started_at: datetime
@@ -38,7 +38,7 @@ class IncidentRecord(BaseModel):
 
 
 class IncidentRecordSummary(BaseModel):
-    """Vue resumee d'un `IncidentRecord`, utilisee par la liste d'historique."""
+    """Summarized view of an `IncidentRecord`, used by the history list."""
 
     id: str
     started_at: datetime
@@ -66,7 +66,7 @@ def _summarize(record: IncidentRecord) -> IncidentRecordSummary:
 
 
 class PersistenceStore(Protocol):
-    """Interface commune : sauvegarde et relecture des executions terminees."""
+    """Common interface: save and reload finished runs."""
 
     async def save(self, record: IncidentRecord) -> None: ...
 
@@ -76,7 +76,7 @@ class PersistenceStore(Protocol):
 
 
 class LocalPersistenceStore:
-    """Un fichier JSON par execution dans `path` (mode hors-ligne, KB_MODE=local)."""
+    """One JSON file per run in `path` (offline mode, KB_MODE=local)."""
 
     def __init__(self, path: Path) -> None:
         self._path = path
@@ -100,12 +100,12 @@ class LocalPersistenceStore:
 
 
 class CosmosPersistenceStore:
-    """Conteneur Azure Cosmos DB (mode deploye, `COSMOS_ENDPOINT` defini).
+    """Azure Cosmos DB container (deployed mode, `COSMOS_ENDPOINT` set).
 
-    Le compte, la base et le conteneur (partition key `/id`) sont
-    provisionnes par `infra/` (Bicep) ; cette classe ne fait que lire/ecrire
-    des documents via le plan de donnees (role `Cosmos DB Built-in Data
-    Contributor`, voir SPEC.md section 7).
+    The account, database, and container (partition key `/id`) are
+    provisioned by `infra/` (Bicep); this class only reads/writes
+    documents via the data plane (role `Cosmos DB Built-in Data
+    Contributor`, see SPEC.md section 7).
     """
 
     def __init__(self, *, endpoint: str, database: str, container: str, credential: object) -> None:
@@ -115,7 +115,7 @@ class CosmosPersistenceStore:
         self._database = database
         self._container = container
 
-    def _container_client(self):  # noqa: ANN202 - type vit dans azure.cosmos.aio
+    def _container_client(self):  # noqa: ANN202 - type lives in azure.cosmos.aio
         return self._client.get_database_client(self._database).get_container_client(self._container)
 
     async def save(self, record: IncidentRecord) -> None:
@@ -141,7 +141,7 @@ class CosmosPersistenceStore:
 
 
 def get_persistence_store(settings: Settings) -> PersistenceStore:
-    """Choisit l'implementation de persistance selon `COSMOS_ENDPOINT`."""
+    """Picks the persistence implementation based on `COSMOS_ENDPOINT`."""
 
     if settings.cosmos_endpoint is None:
         return LocalPersistenceStore(REPO_ROOT / "output" / "runs")

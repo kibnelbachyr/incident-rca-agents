@@ -1,15 +1,15 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Classe de base commune aux six agents specialises.
+"""Base class shared by the six specialized agents.
 
-Chaque agent declare son `name` (utilise comme cle dans le stub et comme nom
-de l'`Agent` reel), ses `instructions` (prompt systeme, en francais) et son
-`response_model` (contrat pydantic de sortie, src/models.py). `run(prompt)`
-delegue au `StructuredChatClient` injecte (stub ou reel) et renvoie une
-instance validee de `response_model`.
+Each agent declares its `name` (used as the stub key and as the real
+`Agent`'s name), its `instructions` (system prompt) and its `response_model`
+(output pydantic contract, src/models.py). `run(prompt)` delegates to the
+injected `StructuredChatClient` (stub or real) and returns a validated
+instance of `response_model`.
 
-Les agents sont sans etat (SPEC.md section 2) : ils ne conservent rien entre
-deux appels et ne se referencent jamais entre eux.
+Agents are stateless (SPEC.md section 2): they keep nothing between calls
+and never reference each other.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ ResponseT = TypeVar("ResponseT", bound=BaseModel)
 
 
 class StructuredAgent(Generic[ResponseT]):
-    """Agent stateless qui produit une sortie JSON validee par pydantic."""
+    """Stateless agent that produces a JSON output validated by pydantic."""
 
     name: ClassVar[str]
     instructions: ClassVar[str]

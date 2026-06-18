@@ -1,51 +1,50 @@
-# Fonctionnement interne
+# Internal mechanics
 
-> Comment le graphe d'orchestration s'exécute réellement : propagation du
-> `SharedContext`, topologie, boucle de réflexion, human-in-the-loop (HITL) et
-> flux SSE. À lire avec `src/orchestrator/graph.py` et
-> `src/orchestrator/executors.py` ouverts. Pour la liste des composants, voir
+> How the orchestration graph actually executes: `SharedContext`
+> propagation, topology, reflection loop, human-in-the-loop (HITL), and
+> the SSE flow. Best read with `src/orchestrator/graph.py` and
+> `src/orchestrator/executors.py` open. For the list of components, see
 > [`architecture.md`](architecture.md).
 
-## 1. `SharedContext` : la colonne vertébrale
+## 1. `SharedContext`: the backbone
 
-Tout l'état de l'exécution vit dans **un seul objet pydantic**,
-`SharedContext` (`src/models.py`), qui circule entre les exécuteurs via
-`ctx.send_message(context)`. Les agents n'ont pas d'état et ne se voient
-jamais entre eux : chaque exécuteur lit ce qu'il lui faut dans `context`,
-appelle son agent, **mute `context` en place**, puis le relaie.
+The entire execution state lives in **a single pydantic object**,
+`SharedContext` (`src/models.py`), which flows between executors via
+`ctx.send_message(context)`. Agents are stateless and never see each other
+directly: each executor reads what it needs from `context`, calls its
+agent, **mutates `context` in place**, then forwards it.
 
-### Réassignation vs accumulation
+### Reassignment vs accumulation
 
-- **Champs « ponctuels »** (`log_analysis`, `incident`, `kb_matches`,
-  `root_cause`, `remediation_plan`, `report`, `approved`) sont **réassignés**
-  à chaque passage : ils ne reflètent que la dernière valeur écrite.
-- **Champs « cumulatifs »** (`root_cause_history`, `evidence_log`) sont
-  **étendus** (`.append`/`.extend`) : ils conservent tout l'historique,
-  notamment les deux passages de `RootCause` en cas de boucle de réflexion.
-  `loop_count` est un compteur incrémenté par `GatherEvidenceExecutor`.
+- **"Point-in-time" fields** (`log_analysis`, `incident`, `kb_matches`,
+  `root_cause`, `remediation_plan`, `report`, `approved`) are **reassigned**
+  on every pass: they only reflect the last value written.
+- **"Cumulative" fields** (`root_cause_history`, `evidence_log`) are
+  **extended** (`.append`/`.extend`): they keep the full history,
+  notably both `RootCause` passes when a reflection loop occurs.
+  `loop_count` is a counter incremented by `GatherEvidenceExecutor`.
 
 ### `yield_output` vs `send_message`
 
-Chaque exécuteur (sauf cas particuliers détaillés en §4) appelle :
+Each executor (except for the special cases detailed in §4) calls:
 
 ```python
-await ctx.yield_output(context)   # observabilité : un événement "output" par étape
-await ctx.send_message(context)   # avance dans le graphe vers le(s) successeur(s)
+await ctx.yield_output(context)   # observability: one "output" event per step
+await ctx.send_message(context)   # advances the graph to the successor(s)
 ```
 
-`yield_output` transmet **une référence directe** au `SharedContext`
-mutable, pas une copie. Conséquence : à la fin d'un `run()` complet (non
-streamé), tous les événements `type="output"` du résultat partagent le
-**même objet final** — un champ réassigné (ex. `root_cause`) ne montre que sa
-dernière valeur si on l'inspecte après coup, alors que les champs
-accumulés (`root_cause_history`, `evidence_log`) gardent tout l'historique.
-C'est pourquoi les tests d'orchestration lisent `root_cause_history` pour
-distinguer le 1er et le 2e passage de `RootCause`. **En streaming
-(`stream=True`)**, en revanche, chaque `event.data` reçu au fil de l'eau est
-un instantané pertinent au moment de son émission — c'est ce que consomment
-le CLI et l'API SSE.
+`yield_output` passes **a direct reference** to the mutable `SharedContext`,
+not a copy. Consequence: at the end of a complete (non-streamed) `run()`,
+all `type="output"` events in the result share the **same final object** —
+a reassigned field (e.g. `root_cause`) only shows its last value when
+inspected afterward, whereas the accumulated fields (`root_cause_history`,
+`evidence_log`) keep the full history. This is why the orchestration tests
+read `root_cause_history` to distinguish the 1st and 2nd `RootCause` pass.
+**In streaming mode (`stream=True`)**, on the other hand, each `event.data`
+received as it arrives is a snapshot relevant at the moment it was emitted —
+this is what the CLI and the SSE API consume.
 
-## 2. Topologie du graphe (`build_workflow`, `src/orchestrator/graph.py`)
+## 2. Graph topology (`build_workflow`, `src/orchestrator/graph.py`)
 
 ```python
 workflow = (
@@ -67,23 +66,23 @@ workflow = (
 )
 ```
 
-`output_from="all"` : **chaque** exécuteur émet un événement `output` (pas
-seulement le dernier), ce qui permet d'observer la sortie de chaque agent en
-streaming — y compris les deux passages de `RootCause`/`GatherEvidence`.
+`output_from="all"`: **every** executor emits an `output` event (not just
+the last one), which makes it possible to observe each agent's output
+while streaming — including both `RootCause`/`GatherEvidence` passes.
 
 ### Construction (`build_workflow(settings)`)
 
-1. **Clients de chat** : `light_client = get_chat_client(settings,
+1. **Chat clients**: `light_client = get_chat_client(settings,
    light=True)`, `strong_client = get_chat_client(settings, light=False)`
-   (§5.2 de `architecture.md`).
-2. **Base de connaissances** : `knowledge_base = get_knowledge_base(settings)`.
-3. **Agents partagés** : `log_analyzer_agent = LogAnalyzerAgent(light_client)`
-   et `kb_search_agent = KBSearchAgent(light_client, knowledge_base)` sont
-   instanciés **une seule fois** et injectés à la fois dans
-   `LogAnalyzerExecutor`/`KBSearchExecutor` (pipeline principal) et dans
-   `GatherEvidenceExecutor` (boucle de réflexion) — pas de duplication
-   d'agent, conforme aux « six agents spécialisés » de `SPEC.md` §2.
-4. **`needs_more_evidence`** est une **closure** qui capture `settings` :
+   (§5.2 of `architecture.md`).
+2. **Knowledge base**: `knowledge_base = get_knowledge_base(settings)`.
+3. **Shared agents**: `log_analyzer_agent = LogAnalyzerAgent(light_client)`
+   and `kb_search_agent = KBSearchAgent(light_client, knowledge_base)` are
+   instantiated **once** and injected both into
+   `LogAnalyzerExecutor`/`KBSearchExecutor` (main pipeline) and into
+   `GatherEvidenceExecutor` (reflection loop) — no agent duplication,
+   consistent with the "six specialized agents" from `SPEC.md` §2.
+4. **`needs_more_evidence`** is a **closure** that captures `settings`:
 
    ```python
    def needs_more_evidence(context: SharedContext) -> bool:
@@ -93,68 +92,69 @@ streaming — y compris les deux passages de `RootCause`/`GatherEvidence`.
        )
    ```
 
-   `Case(condition: Callable[[Any], bool], target=...)` n'accepte qu'un seul
-   argument (le `SharedContext` acheminé sur l'arête) : `CONFIDENCE_THRESHOLD`
-   et `MAX_REFLECTION_LOOPS` ne font donc pas partie d'un contrat de données,
-   ils sont injectés via la portée de `build_workflow`.
+   `Case(condition: Callable[[Any], bool], target=...)` only accepts a
+   single argument (the `SharedContext` routed along the edge):
+   `CONFIDENCE_THRESHOLD` and `MAX_REFLECTION_LOOPS` are therefore not part
+   of a data contract — they're injected through the closure scope of
+   `build_workflow`.
 
-## 3. La boucle de réflexion
+## 3. The reflection loop
 
-C'est le **moment fort n°1** de la démo (`scenario-demo-incident-paiement.md`
-§4) : l'orchestrateur refuse de conclure sur un score de confiance
-insuffisant et va chercher des preuves ciblées avant de retenter.
+This is **highlight #1** of the demo (`scenario-demo-incident-paiement.md`
+§4): the orchestrator refuses to conclude on an insufficient confidence
+score and goes to gather targeted evidence before trying again.
 
-### Déclenchement
+### Trigger
 
-Après `RootCauseExecutor`, l'arête conditionnelle évalue
-`needs_more_evidence(context)` :
+After `RootCauseExecutor`, the conditional edge evaluates
+`needs_more_evidence(context)`:
 
-- **Vrai** (`confiance < CONFIDENCE_THRESHOLD` **ET** `loop_count <
-  MAX_REFLECTION_LOOPS`) → routage vers `GatherEvidenceExecutor`.
-- **Faux** (confiance suffisante, ou budget de boucle épuisé) → routage vers
+- **True** (`confiance < CONFIDENCE_THRESHOLD` **AND** `loop_count <
+  MAX_REFLECTION_LOOPS`) → routes to `GatherEvidenceExecutor`.
+- **False** (confidence sufficient, or loop budget exhausted) → routes to
   `HumanApprovalExecutor` (`Default`).
 
 ### `GatherEvidenceExecutor`
 
-1. Incrémente `context.loop_count`.
-2. Reconstruit un prompt `LogAnalyzer` **ciblé** :
+1. Increments `context.loop_count`.
+2. Rebuilds a **targeted** `LogAnalyzer` prompt:
    `build_log_prompt(context.raw_logs, focus=context.root_cause.preuves_manquantes)`
-   — les `preuves_manquantes` du dernier `RootCauseHypothesis` deviennent les
-   points à investiguer en priorité.
-3. Étend `context.evidence_log` avec les nouveaux
+   — the `preuves_manquantes` from the last `RootCauseHypothesis` become the
+   points to investigate as a priority.
+3. Extends `context.evidence_log` with the new
    `log_analysis.correlated_events`.
-4. Relance `KBSearchAgent.run(context.incident)` pour reconfronter les
-   précédents à la lumière des nouvelles preuves.
-5. `ctx.yield_output(context)` puis `ctx.send_message(context)` →
-   **retour vers `RootCauseExecutor`** (`add_edge(gather_evidence,
-   root_cause)`), qui reçoit cette fois `evidence_log` non vide
+4. Re-runs `KBSearchAgent.run(context.incident)` to re-confront past
+   incidents in light of the new evidence.
+5. `ctx.yield_output(context)` then `ctx.send_message(context)` →
+   **back to `RootCauseExecutor`** (`add_edge(gather_evidence,
+   root_cause)`), which this time receives a non-empty `evidence_log`
    (`build_prompt(..., evidence_log=context.evidence_log)`).
 
-### Garantie de terminaison
+### Termination guarantee
 
-La boucle est **bornée par construction** : `needs_more_evidence` est
-**impossible à satisfaire indéfiniment**, car `loop_count` est strictement
-croissant et plafonné par `MAX_REFLECTION_LOOPS` (défaut **2**). Même si la
-confiance reste basse après le nombre maximal de tours, le `Default` route
-vers `HumanApprovalExecutor` — l'orchestrateur avance toujours, jamais de
-boucle infinie (critère d'acceptation 8 de `SPEC.md`).
+The loop is **bounded by construction**: `needs_more_evidence` is
+**impossible to satisfy indefinitely**, because `loop_count` is strictly
+increasing and capped by `MAX_REFLECTION_LOOPS` (default **2**). Even if
+confidence remains low after the maximum number of rounds, the `Default`
+routes to `HumanApprovalExecutor` — the orchestrator always moves forward,
+never an infinite loop (acceptance criterion 8 of `SPEC.md`).
 
-### Déroulé avec les données de démo (`StubChatClient`)
+### Walkthrough with the demo data (`StubChatClient`)
 
-| Tour | `loop_count` | `RootCause.confiance` | Décision |
+| Round | `loop_count` | `RootCause.confiance` | Decision |
 |------|---------------|------------------------|----------|
-| 1 | 0 | **0.55** (deux hypothèses concurrentes : pool DB vs latence Stripe) | `0.55 < 0.75` et `0 < 2` → **reboucle** vers `GatherEvidence` |
-| 2 (après `GatherEvidence`, `loop_count=1`) | 1 | **0.88** (cause = `max_pool_size` 40→20, Stripe écarté) | `0.88 ≥ 0.75` → **continue** vers `HumanApproval` |
+| 1 | 0 | **0.55** (two competing hypotheses: DB pool vs Stripe latency) | `0.55 < 0.75` and `0 < 2` → **loops back** to `GatherEvidence` |
+| 2 (after `GatherEvidence`, `loop_count=1`) | 1 | **0.92** (cause = `max_pool_size` 40→20, Stripe ruled out) | `0.92 >= 0.75` → **continues** to `HumanApproval` |
 
 ## 4. Human-in-the-loop (HITL)
 
-C'est le **moment fort n°2** : sur un système de paiement, aucune
-remédiation n'est proposée sans validation humaine explicite.
+This is **highlight #2**: on a payment system, no remediation is proposed
+without explicit human validation.
 
-### Mécanisme : `ctx.request_info()` + `@response_handler`
+### Mechanism: `ctx.request_info()` + `@response_handler`
 
-`HumanApprovalExecutor` est une porte **pure** (n'enveloppe aucun agent) qui
-porte un état d'instance entre deux invocations :
+`HumanApprovalExecutor` is a **pure** gate (it wraps no agent) that
+carries instance state between two invocations:
 
 ```python
 class HumanApprovalExecutor(Executor):
@@ -184,36 +184,36 @@ class HumanApprovalExecutor(Executor):
         if response:
             await ctx.send_message(context)   # -> Remediation
         else:
-            await ctx.yield_output(context)    # arrêt : pas de send_message
+            await ctx.yield_output(context)    # stop: no send_message
 ```
 
-- `handle()` émet un `RequestInfoEvent` (`event.type == "request_info"`,
-  `event.request_id`) contenant un `RemediationApprovalRequest` — un
-  **sous-ensemble** du contexte (incident, cause racine, précédents) destiné
-  à être présenté à l'humain.
-- Le `Workflow` et ses exécuteurs **persistent en mémoire** entre deux appels
-  `workflow.run(...)` : `self._context` (le `SharedContext` **complet**)
-  survit donc jusqu'à ce que `workflow.run(stream=True, responses={request_id:
-  bool})` soit appelé pour reprendre l'exécution.
-- **Approbation** (`response=True`) : `context.approved = True`,
-  `ctx.send_message(context)` → le graphe continue vers `RemediationExecutor`
-  puis `SummaryExecutor`.
-- **Refus** (`response=False`) : `context.approved = False`,
-  **uniquement** `ctx.yield_output(context)` — aucune arête ne part de
-  `human_approval` vers un nœud terminal alternatif, c'est l'**absence** de
-  `send_message` qui arrête le graphe (plus aucun exécuteur à invoquer). La
-  seule sortie observable porte `approved=False`, `remediation_plan=None`,
-  `report=None` : conforme à `CLAUDE.md` (« aucune remédiation sans
-  validation »).
+- `handle()` emits a `RequestInfoEvent` (`event.type == "request_info"`,
+  `event.request_id`) containing a `RemediationApprovalRequest` — a
+  **subset** of the context (incident, root cause, precedents) meant to be
+  presented to the human.
+- The `Workflow` and its executors **persist in memory** between two
+  `workflow.run(...)` calls: `self._context` (the **full** `SharedContext`)
+  therefore survives until `workflow.run(stream=True, responses={request_id:
+  bool})` is called to resume execution.
+- **Approval** (`response=True`): `context.approved = True`,
+  `ctx.send_message(context)` → the graph continues to `RemediationExecutor`
+  then `SummaryExecutor`.
+- **Rejection** (`response=False`): `context.approved = False`,
+  **only** `ctx.yield_output(context)` — no edge leaves `human_approval`
+  toward an alternative terminal node; it's the **absence** of
+  `send_message` that stops the graph (no more executors to invoke). The
+  only observable output carries `approved=False`, `remediation_plan=None`,
+  `report=None`: consistent with `CLAUDE.md` ("no remediation without
+  validation").
 
-> ⚠️ Pourquoi `RemediationApprovalRequest` ne porte-t-il qu'un sous-ensemble
-> du contexte ? Parce que c'est ce sous-ensemble qui doit être **sérialisé**
-> dans l'événement `request_info` et présenté à l'humain (CLI ou
-> `ApprovalCard` côté UI). Le contexte complet, lui, n'a pas besoin de
-> traverser la frontière HITL : il reste sur `self._context` et reprend son
-> chemin via `ctx.send_message` une fois la décision connue.
+> ⚠️ Why does `RemediationApprovalRequest` only carry a subset of the
+> context? Because that subset is what needs to be **serialized** in the
+> `request_info` event and presented to the human (CLI or `ApprovalCard` on
+> the UI side). The full context doesn't need to cross the HITL boundary:
+> it stays on `self._context` and resumes its path via `ctx.send_message`
+> once the decision is known.
 
-## 5. Flux d'exécution de bout en bout
+## 5. End-to-end execution flow
 
 ### 5.1 CLI (`src/main.py`)
 
@@ -223,7 +223,7 @@ async for event in result:
     if event.type == "output":
         _print_step_output(event.executor_id, event.data, settings)
     elif event.type == "request_info":
-        approved = _ask_approval(event.data)   # input() bloquant
+        approved = _ask_approval(event.data)   # blocking input()
         break
 await result.get_final_response()
 
@@ -235,27 +235,28 @@ if approved is not None:
     await result.get_final_response()
 ```
 
-- **Phase 1** : streame `log_analyzer → incident_extractor → kb_search →
-  root_cause → (gather_evidence → root_cause)* → human_approval`, jusqu'au
-  `RequestInfoEvent`. `_print_step_output` formate chaque type de sortie
-  (timeline, incident, précédents KB, cause racine + verdict de boucle,
-  collecte de preuves).
-- `_ask_approval` affiche incident / cause retenue / confiance / précédents
-  et demande `input("Approuver le passage a la remediation ? [o/N] : ")`.
-  `EOFError` (entrée non interactive) → refus.
-- **Phase 2** (si approuvé) : reprend le **même** `workflow` avec
-  `responses={request_id: True}` → streame `remediation → summary`.
-- Si refusé : le workflow s'arrête après la phase 1, rien n'est affiché de
-  plus (pas de plan, pas de rapport).
+- **Phase 1**: streams `log_analyzer → incident_extractor → kb_search →
+  root_cause → (gather_evidence → root_cause)* → human_approval`, up to the
+  `RequestInfoEvent`. `_print_step_output` formats each output type
+  (timeline, incident, KB precedents, root cause + loop verdict,
+  evidence gathering).
+- `_ask_approval` displays the incident / chosen cause / confidence /
+  precedents and prompts `input("Approve proceeding to remediation?
+  [y/N]: ")`. `EOFError` (non-interactive input) → rejection.
+- **Phase 2** (if approved): resumes the **same** `workflow` with
+  `responses={request_id: True}` → streams `remediation → summary`.
+- If rejected: the workflow stops after phase 1, nothing further is
+  displayed (no plan, no report).
 
 ### 5.2 Web UI (FastAPI SSE + React)
 
-Le **même** `build_workflow(settings)` est exposé en deux endpoints SSE
-(`src/api/runs.py`), avec un registre en mémoire `app.state.runs: dict[str,
-RunState]` qui garde le `Workflow` vivant entre les deux appels HTTP (requis
-car `HumanApprovalExecutor` porte l'état sur `self._context`, §4).
+The **same** `build_workflow(settings)` is exposed via two SSE endpoints
+(`src/api/runs.py`), with an in-memory registry `app.state.runs: dict[str,
+RunState]` that keeps the `Workflow` alive between the two HTTP calls
+(required since `HumanApprovalExecutor` carries state on `self._context`,
+§4).
 
-**`POST /api/runs`** — phase 1 :
+**`POST /api/runs`** — phase 1:
 
 ```python
 run_id = uuid.uuid4().hex
@@ -275,7 +276,7 @@ async for event in result:
 await result.get_final_response()
 ```
 
-**`POST /api/runs/{run_id}/approval`** — phase 2 (`body: {"approved": bool}`) :
+**`POST /api/runs/{run_id}/approval`** — phase 2 (`body: {"approved": bool}`):
 
 ```python
 result = state.workflow.run(stream=True, responses={request_id: body.approved})
@@ -291,43 +292,51 @@ if final_context is not None:
 yield sse_event("done", {"approved": body.approved})
 ```
 
-### Événements SSE
+### SSE events
 
-| Événement | Payload | Émis par |
+| Event | Payload | Emitted by |
 |-----------|---------|----------|
-| `run_started` | `{"run_id": str}` | `POST /api/runs`, immédiatement |
-| `step` | `{"executor_id": str, "context": SharedContext}` | à chaque `event.type == "output"`, dans les deux phases |
-| `approval_required` | `{"request": RemediationApprovalRequest}` | `POST /api/runs`, sur `event.type == "request_info"` |
-| `done` | `{"approved": bool \| null}` | fin de l'une ou l'autre phase |
-| `error` | `{"message": str}` | toute exception (le `run_id` est alors retiré du registre) |
+| `run_started` | `{"run_id": str}` | `POST /api/runs`, immediately |
+| `step` | `{"executor_id": str, "context": SharedContext}` | on each `event.type == "output"`, in both phases |
+| `approval_required` | `{"request": RemediationApprovalRequest}` | `POST /api/runs`, on `event.type == "request_info"` |
+| `done` | `{"approved": bool \| null}` | end of either phase |
+| `error` | `{"message": str}` | any exception (the `run_id` is then removed from the registry) |
 
-### 5.3 Côté frontend (`frontend/src/`)
+### 5.3 Frontend side (`frontend/src/`)
 
-- `api.ts` : `EventSource` ne supporte pas POST, donc `startRun`/
-  `submitApproval` parsent eux-mêmes le flux `text/event-stream` via `fetch`
-  + `ReadableStream`, en découpant sur `\n\n` et dispatchant selon la ligne
-  `event: ...`.
-- `App.tsx` : machine à états `phase` (`idle → running → awaiting_approval →
-  running → done`/`error`) ; chaque `step` est poussé dans `steps` (rendu par
-  `StepCard`), `approval_required` affiche `ApprovalCard`.
-- `TopologyGraph.tsx` anime le graphe à 8 nœuds en fonction des
-  `executor_id` déjà vus dans `steps`. Comme `HumanApprovalExecutor` n'émet
-  un `step` qu'**en cas de refus** (§4), le passage par la porte HITL en cas
-  d'**approbation** est déduit de la présence d'un `step` `remediation` dans
-  le flux (le nœud et les arêtes `root_cause -> human_approval ->
-  remediation` sont alors marqués comme traversés).
-- `History.tsx` consulte `/api/history` (`IncidentRecordSummary[]`) et
-  `/api/history/{run_id}` (`IncidentRecord` complet, incl. `SharedContext`
-  final) pour revoir une exécution passée — y compris une exécution refusée
-  (`context.approved === false`, pas de `remediation_plan`/`report`).
+- `api.ts`: `EventSource` doesn't support POST, so `startRun`/
+  `submitApproval` parse the `text/event-stream` stream themselves via
+  `fetch` + `ReadableStream`, splitting on `\n\n` and dispatching based on
+  the `event: ...` line.
+- `App.tsx`: `phase` state machine (`idle → running → awaiting_approval →
+  running → done`/`error`); each `step` is pushed into `steps`, rendered by
+  `DetailPanel` (with internal per-executor views such as
+  `LogAnalysisView`, `IncidentView`, `KBMatchesView`, `RootCauseView`,
+  `GatherEvidenceView`, `RemediationPlanView`, `SummaryView`, and
+  `RejectionView`); `approval_required` displays `ApprovalCard`, embedded
+  inside `DetailPanel`.
+- `PipelineHUD.tsx` animates the SVG pipeline (8 nodes: 6 agents plus the
+  `GatherEvidence` loop node and the `HumanApproval` diamond), the
+  "Pipeline Status" readout, and the RUN id badge, based on the
+  `executor_id` values already seen in `steps`. `ActivityFeed.tsx` renders
+  the scrolling "Orchestration Log" feed alongside it. Since
+  `HumanApprovalExecutor` only emits a `step` **on rejection** (§4),
+  passage through the HITL gate on **approval** is inferred from the
+  presence of a `remediation` `step` in the stream (the node and the
+  `root_cause -> human_approval -> remediation` edges are then marked as
+  traversed).
+- `History.tsx` queries `/api/history` (`IncidentRecordSummary[]`) and
+  `/api/history/{run_id}` (full `IncidentRecord`, including the final
+  `SharedContext`) to review a past run — including a rejected run
+  (`context.approved === false`, no `remediation_plan`/`report`).
 
-## 6. Observabilité
+## 6. Observability
 
-- **Streaming** : chaque sortie d'agent est émise au fil de l'eau
-  (`output_from="all"`), y compris la boucle `RootCause ↔ GatherEvidence`
-  (critère d'acceptation 7 de `SPEC.md`).
-- **Application Insights** : `APPLICATIONINSIGHTS_CONNECTION_STRING` est
-  provisionné par `infra/` et injecté dans le Container App, mais
-  l'application **ne l'exploite pas encore** (pas d'exporteur OpenTelemetry
-  câblé côté code) — c'est une piste d'évolution listée dans le `README.md`
-  racine.
+- **Streaming**: each agent output is emitted as it happens
+  (`output_from="all"`), including the `RootCause <-> GatherEvidence` loop
+  (acceptance criterion 7 of `SPEC.md`).
+- **Application Insights**: `APPLICATIONINSIGHTS_CONNECTION_STRING` is
+  provisioned by `infra/` and injected into the Container App. When set,
+  `src/observability.py` wires it up via `configure_azure_monitor` and
+  `enable_instrumentation`, exporting the Agent Framework's OpenTelemetry
+  traces.

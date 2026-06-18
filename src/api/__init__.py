@@ -1,9 +1,9 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""API FastAPI exposant le workflow d'orchestration (SPEC.md section 5) sur HTTP.
+"""FastAPI API exposing the orchestration workflow (SPEC.md section 5) over HTTP.
 
-Voir `src/api/app.py` pour la fabrique d'application et `src/api/runs.py`
-pour le contrat des evenements SSE consommes par `frontend/`.
+See `src/api/app.py` for the application factory and `src/api/runs.py`
+for the contract of SSE events consumed by `frontend/`.
 """
 
 from __future__ import annotations

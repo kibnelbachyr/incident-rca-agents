@@ -1,9 +1,9 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Agent IncidentExtractor (SPEC.md section 4.2).
+"""IncidentExtractor agent (SPEC.md section 4.2).
 
-Produit l'objet incident structure a partir de l'analyse de logs.
-Modele suggere : leger.
+Produces the structured incident object from the log analysis.
+Suggested model: light.
 """
 
 from __future__ import annotations
@@ -11,33 +11,32 @@ from __future__ import annotations
 from src.agents.base import StructuredAgent
 from src.models import Incident, LogAnalysis
 
-INSTRUCTIONS = """Tu es l'agent IncidentExtractor d'un systeme de diagnostic d'incidents de paiement.
+INSTRUCTIONS = """You are the IncidentExtractor agent of a payment incident diagnosis system.
 
-Ton role : transformer l'analyse de logs (timeline, anomalies, evenements
-correles) produite par l'agent LogAnalyzer en un objet incident structure et
-exploitable par les agents suivants. Tu ne communiques jamais directement avec
-les autres agents.
+Your role: turn the log analysis (timeline, anomalies, correlated events)
+produced by the LogAnalyzer agent into a structured incident object usable by
+the next agents. You never communicate directly with other agents.
 
-Produis un objet JSON avec :
-- "titre": titre court et descriptif de l'incident ;
-- "severite": niveau de severite au format "SEV-1" a "SEV-5" (SEV-1 = impact
-  critique en production, ex. echecs massifs de transactions de paiement) ;
-- "services": liste des services/composants impactes (noms techniques courts,
-  ex. "payment-api", "db-pool") ;
-- "fenetre": fenetre temporelle de l'incident, ex. "14:23 -> en cours" ou
-  "14:23 -> 14:41 (resolu)" ;
-- "symptomes": liste des symptomes observes par les utilisateurs/operateurs.
+Produce a JSON object with:
+- "titre": short, descriptive title of the incident;
+- "severite": severity level in the format "SEV-1" to "SEV-5" (SEV-1 =
+  critical production impact, e.g. massive payment transaction failures);
+- "services": list of impacted services/components (short technical names,
+  e.g. "payment-api", "db-pool");
+- "fenetre": time window of the incident, e.g. "14:23 -> ongoing" or
+  "14:23 -> 14:41 (resolved)";
+- "symptomes": list of symptoms observed by users/operators.
 
-Reponds UNIQUEMENT avec un objet JSON valide conforme au schema fourni, sans
-texte ni balises Markdown autour."""
+Respond ONLY with a valid JSON object conforming to the provided schema,
+with no surrounding text or Markdown tags."""
 
 
 def build_prompt(log_analysis: LogAnalysis) -> str:
-    return "Analyse de logs produite par l'agent LogAnalyzer :\n" f"{log_analysis.model_dump_json(indent=2)}"
+    return "Log analysis produced by the LogAnalyzer agent:\n" f"{log_analysis.model_dump_json(indent=2)}"
 
 
 class IncidentExtractorAgent(StructuredAgent[Incident]):
-    """Produit l'objet incident structure (agent 2/6)."""
+    """Produces the structured incident object (agent 2/6)."""
 
     name = "IncidentExtractor"
     instructions = INSTRUCTIONS

@@ -1,34 +1,34 @@
 #
-# Workflow CSDL "miroir" du graphe d'orchestration reel
-# (src/orchestrator/graph.py), pour le rendre visible/navigable dans le
-# canevas visuel du projet Microsoft Foundry (onglet Agents > Workflow).
+# Workflow CSDL "mirror" of the real orchestration graph
+# (src/orchestrator/graph.py), to make it visible/navigable in the
+# Microsoft Foundry project's visual canvas (Agents > Workflow tab).
 #
-# Ecrit a la main a partir de la documentation officielle "Declarative
-# Workflows" (Microsoft Agent Framework - structure trigger-based / actions
-# CSDL). Il n'existe pas d'exportateur automatique du WorkflowBuilder Python
-# vers CSDL (DECISIONS.md #30) : ce fichier est un second artefact, distinct
-# du code qui s'execute reellement.
+# Hand-written from the official "Declarative Workflows" documentation
+# (Microsoft Agent Framework - trigger-based structure / CSDL actions).
+# There is no automatic exporter from the Python WorkflowBuilder to CSDL
+# (DECISIONS.md #30): this file is a second artifact, distinct from the
+# code that actually executes.
 #
-# IMPORTANT - ce que ce fichier N'EST PAS :
-# - Ce n'est PAS l'orchestration qui s'execute reellement : celle-ci reste
-#   100% src/orchestrator/graph.py + executors.py (agents appeles directement
-#   contre Azure OpenAI, cf. src/agents/clients.py). Ce YAML est maintenu a la
-#   main pour que la TOPOLOGIE (sequence, boucle de reflexion bornee, porte
-#   HITL) soit visible dans Foundry, pas pour etre executee en production.
-# - Les six InvokeAzureAgent ci-dessous referencent des agents enregistres
-#   comme ExternalAgentDefinition (scripts/register_foundry_agents.py) :
-#   entrees metadata-only, sans modele/instructions cote Foundry. Cliquer
-#   "Run Workflow" dans le portail echouera donc probablement a la premiere
-#   invocation d'agent - seul l'AFFICHAGE du graphe (noeuds/aretes/conditions)
-#   est garanti utile. L'execution reelle reste observable uniquement via
+# IMPORTANT - what this file is NOT:
+# - This is NOT the orchestration that actually executes: that remains
+#   100% src/orchestrator/graph.py + executors.py (agents called directly
+#   against Azure OpenAI, cf. src/agents/clients.py). This YAML is
+#   hand-maintained so the TOPOLOGY (sequence, bounded reflection loop,
+#   HITL gate) is visible in Foundry, not to be executed in production.
+# - The six InvokeAzureAgent blocks below reference agents registered as
+#   ExternalAgentDefinition (scripts/register_foundry_agents.py):
+#   metadata-only entries, with no model/instructions on the Foundry side.
+#   Clicking "Run Workflow" in the portal will therefore likely fail on the
+#   first agent invocation - only the graph DISPLAY (nodes/edges/conditions)
+#   is guaranteed to be useful. Real execution remains observable only via
 #   Observability > Traces (docs/deployment.md section 8.12).
-# - A resynchroniser a la main si src/orchestrator/graph.py change (seuil de
-#   confiance, nombre max de boucles, ordre des etapes, etc.) : voir
-#   docs/deployment.md section 8.14.
+# - Must be resynced by hand if src/orchestrator/graph.py changes (confidence
+#   threshold, max loop count, step order, etc.): see docs/deployment.md
+#   section 8.14.
 #
-# Pour tester dans le chat "Run Workflow" du portail : coller le contenu de
-# data/payment-incident.log (ou tout autre log d'incident) comme premier
-# message - il est capture par l'action `capture_raw_logs` ci-dessous.
+# To test in the portal's "Run Workflow" chat: paste the contents of
+# data/payment-incident.log (or any other incident log) as the first
+# message - it is captured by the `capture_raw_logs` action below.
 #
 kind: Workflow
 trigger:
@@ -37,22 +37,22 @@ trigger:
   id: incident_rca_workflow
   actions:
 
-    # --- Capture de l'incident brut (1er message de la conversation) -------
+    # --- Capture the raw incident (1st message of the conversation) --------
     - kind: SetVariable
       id: capture_raw_logs
       displayName: Capture raw incident logs from first message
       variable: Local.RawLogs
       value: =System.LastMessage.Text
 
-    # --- Etat de la boucle de reflexion bornee (cf. src/config.py) ---------
-    # CONFIDENCE_THRESHOLD et MAX_REFLECTION_LOOPS sont des constantes
-    # "non negociables" (CLAUDE.md) : valeurs par defaut recopiees ici
-    # (0.75 / 2) car ce workflow autonome n'a pas acces a Settings/.env.
-    # Trois SetVariable plutot qu'un seul SetMultipleVariables : ce dernier
-    # suit pourtant exactement la forme documentee (carte `variables:`) mais
-    # l'API Foundry (preview) le rejette en pratique avec "Missing required
-    # properties" (DECISIONS.md #30 addendum) - SetVariable evite ce risque
-    # de divergence doc/API en n'utilisant que la forme la plus simple.
+    # --- Bounded reflection loop state (cf. src/config.py) -----------------
+    # CONFIDENCE_THRESHOLD and MAX_REFLECTION_LOOPS are "non-negotiable"
+    # constants (CLAUDE.md): default values copied here (0.75 / 2) because
+    # this standalone workflow has no access to Settings/.env.
+    # Three SetVariable actions rather than a single SetMultipleVariables:
+    # the latter does follow the documented form exactly (a `variables:`
+    # map) but the Foundry API (preview) rejects it in practice with
+    # "Missing required properties" (DECISIONS.md #30 addendum) - SetVariable
+    # avoids this doc/API divergence risk by using only the simplest form.
     - kind: SetVariable
       id: init_loop_count
       displayName: Initialize loop_count
@@ -71,7 +71,7 @@ trigger:
       variable: Local.maxReflectionLoops
       value: 2
 
-    # --- Agent 1/6 : LogAnalyzer ---------------------------------------------
+    # --- Agent 1/6: LogAnalyzer -----------------------------------------------
     - kind: InvokeAzureAgent
       id: invoke_log_analyzer
       displayName: "Agent 1/6: LogAnalyzer"
@@ -84,7 +84,7 @@ trigger:
         responseObject: Local.LogAnalysisResult
         autoSend: true
 
-    # --- Agent 2/6 : IncidentExtractor ---------------------------------------
+    # --- Agent 2/6: IncidentExtractor ------------------------------------------
     - kind: InvokeAzureAgent
       id: invoke_incident_extractor
       displayName: "Agent 2/6: IncidentExtractor"
@@ -98,7 +98,7 @@ trigger:
         responseObject: Local.IncidentResult
         autoSend: true
 
-    # --- Agent 3/6 : KBSearch -------------------------------------------------
+    # --- Agent 3/6: KBSearch ----------------------------------------------------
     - kind: InvokeAzureAgent
       id: invoke_kb_search
       displayName: "Agent 3/6: KBSearch"
@@ -112,7 +112,7 @@ trigger:
         responseObject: Local.KbMatchesResult
         autoSend: true
 
-    # --- Agent 4/6 : RootCause (cible du GotoAction de la boucle, plus bas) --
+    # --- Agent 4/6: RootCause (target of the loop's GotoAction, further down) --
     - kind: InvokeAzureAgent
       id: invoke_root_cause
       displayName: "Agent 4/6: RootCause"
@@ -128,11 +128,11 @@ trigger:
         responseObject: Local.RootCauseResult
         autoSend: true
 
-    # --- Boucle de reflexion bornee ------------------------------------------
-    # Mirroir de needs_more_evidence() (src/orchestrator/graph.py) : reboucle
-    # si confiance < seuil ET loop_count < max. Pas de "else" ici : si la
-    # condition est fausse, l'execution tombe simplement au travers vers la
-    # porte HITL juste apres ce bloc (prochaine action de la sequence).
+    # --- Bounded reflection loop ----------------------------------------------
+    # Mirrors needs_more_evidence() (src/orchestrator/graph.py): loops back
+    # if confidence < threshold AND loop_count < max. No "else" here: if the
+    # condition is false, execution simply falls through to the HITL gate
+    # right after this block (the sequence's next action).
     - kind: If
       id: check_needs_more_evidence
       displayName: Bounded reflection loop (confidence below threshold?)
@@ -150,9 +150,9 @@ trigger:
           activity:
             text: =Concat("Confidence ", Local.RootCauseResult.confiance, " is below threshold (loop ", Local.loopCount, "/", Local.maxReflectionLoops, ") — gathering more evidence. Missing -", Local.RootCauseResult.preuves_manquantes)
 
-        # GatherEvidence (pas un agent dedie, DECISIONS.md #5) : reinvoque
-        # LogAnalyzer en ciblant les preuves manquantes, puis rafraichit
-        # KBSearch, avant de reboucler sur RootCause.
+        # GatherEvidence (not a dedicated agent, DECISIONS.md #5): re-invokes
+        # LogAnalyzer targeting the missing evidence, then refreshes
+        # KBSearch, before looping back to RootCause.
         - kind: InvokeAzureAgent
           id: gather_evidence_log_analyzer
           displayName: "GatherEvidence: re-invoke LogAnalyzer (focused)"
@@ -185,19 +185,19 @@ trigger:
           displayName: Jump back to RootCause
           actionId: invoke_root_cause
 
-    # --- Porte HITL (src/orchestrator/executors.py HumanApprovalExecutor) ---
-    # Aucune remediation n'est proposee/affichee sans validation humaine
-    # explicite (CLAUDE.md - contraintes a ne pas contourner).
-    # Forme reelle confirmee via l'exemple officiel ConfirmInput.yaml du depot
-    # microsoft/agent-framework (dotnet/samples/03-workflows/Declarative/
-    # ConfirmInput) - PAS celle documentee par le tutoriel Agent Framework
-    # (question.text / variable), qui a pourtant ete rejetee par l'API
-    # Foundry live (DECISIONS.md #30 addendum) : le vrai champ est `property`
-    # (pas `variable`), le prompt est `prompt.kind` + `prompt.text` (liste, pas
-    # `question.text` scalaire), et `entity` est obligatoire. StringPrebuiltEntity
-    # choisi car deja confirme fonctionnel dans l'exemple officiel - la
-    # comparaison `= "yes"` en aval reste donc valide (pas d'entite booleenne
-    # non confirmee).
+    # --- HITL gate (src/orchestrator/executors.py HumanApprovalExecutor) ---
+    # No remediation is proposed/displayed without explicit human approval
+    # (CLAUDE.md - constraints not to bypass).
+    # Real shape confirmed via the official ConfirmInput.yaml example from the
+    # microsoft/agent-framework repo (dotnet/samples/03-workflows/Declarative/
+    # ConfirmInput) - NOT the one documented by the Agent Framework tutorial
+    # (question.text / variable), which was in fact rejected by the live
+    # Foundry API (DECISIONS.md #30 addendum): the real field is `property`
+    # (not `variable`), the prompt is `prompt.kind` + `prompt.text` (a list,
+    # not a scalar `question.text`), and `entity` is mandatory.
+    # StringPrebuiltEntity was chosen because it's already confirmed working
+    # in the official example - so the downstream `= "yes"` comparison
+    # remains valid (no unconfirmed boolean entity).
     - kind: Question
       id: human_approval_gate
       displayName: Human-in-the-loop approval gate
@@ -217,7 +217,7 @@ trigger:
       displayName: Branch on human approval
       condition: =Local.approved = "yes"
       then:
-        # --- Agent 5/6 : Remediation (uniquement si approuve) ---------------
+        # --- Agent 5/6: Remediation (only if approved) ------------------------
         - kind: InvokeAzureAgent
           id: invoke_remediation
           displayName: "Agent 5/6: Remediation"
@@ -233,7 +233,7 @@ trigger:
             responseObject: Local.RemediationResult
             autoSend: true
 
-        # --- Agent 6/6 : Summary ----------------------------------------------
+        # --- Agent 6/6: Summary ------------------------------------------------
         - kind: InvokeAzureAgent
           id: invoke_summary
           displayName: "Agent 6/6: Summary"

@@ -1,10 +1,10 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Agent KBSearch (SPEC.md section 4.3).
+"""KBSearch agent (SPEC.md section 4.3).
 
-Interroge la base de connaissances (RAG, src/tools/knowledge_base.py) pour
-trouver des precedents similaires, puis fait confirmer/formater la liste
-finale par le client de chat structure. Modele suggere : leger.
+Queries the knowledge base (RAG, src/tools/knowledge_base.py) to find similar
+precedents, then has the final list confirmed/formatted by the structured
+chat client. Suggested model: light.
 """
 
 from __future__ import annotations
@@ -16,35 +16,34 @@ from src.agents.clients import StructuredChatClient
 from src.models import Incident, KBMatches
 from src.tools.knowledge_base import KnowledgeBase
 
-INSTRUCTIONS = """Tu es l'agent KBSearch d'un systeme de diagnostic d'incidents de paiement.
+INSTRUCTIONS = """You are the KBSearch agent of a payment incident diagnosis system.
 
-Ton role : a partir de l'incident structure et d'une liste de precedents
-candidats remontes par une recherche lexicale dans la base de connaissances
-(avec un score de similarite brut), produire la liste finale des precedents
-pertinents pour les agents suivants.
+Your role: from the structured incident and a list of candidate precedents
+surfaced by a lexical search in the knowledge base (with a raw similarity
+score), produce the final list of precedents relevant to the next agents.
 
-Pour chaque precedent retenu (au plus ceux fournis en candidats), indique :
-- "id": l'identifiant du precedent (ex. "INC-204") ;
-- "similarite": un score entre 0 et 1 reflechissant la pertinence vis-a-vis de
-  l'incident courant ;
-- "resolution": un resume court de la resolution appliquee pour ce precedent.
+For each retained precedent (at most those provided as candidates), give:
+- "id": the precedent's identifier (e.g. "INC-204");
+- "similarite": a score between 0 and 1 reflecting relevance to the current
+  incident;
+- "resolution": a short summary of the resolution applied for this precedent.
 
-Conserve tous les candidats fournis, classes du plus au moins pertinent.
-Reponds UNIQUEMENT avec un objet JSON valide conforme au schema fourni, sans
-texte ni balises Markdown autour."""
+Keep all provided candidates, ranked from most to least relevant.
+Respond ONLY with a valid JSON object conforming to the provided schema,
+with no surrounding text or Markdown tags."""
 
 
 def build_prompt(incident: Incident, candidates: KBMatches) -> str:
     return (
-        "Incident structure :\n"
+        "Structured incident:\n"
         f"{incident.model_dump_json(indent=2)}\n\n"
-        "Precedents candidats remontes par la recherche locale (a confirmer/formater) :\n"
+        "Candidate precedents surfaced by the local search (to confirm/format):\n"
         f"{json.dumps(candidates.model_dump()['matches'], indent=2, ensure_ascii=False)}"
     )
 
 
 class KBSearchAgent(StructuredAgent[KBMatches]):
-    """Interroge la base de connaissances et renvoie les precedents (agent 3/6)."""
+    """Queries the knowledge base and returns the precedents (agent 3/6)."""
 
     name = "KBSearch"
     instructions = INSTRUCTIONS

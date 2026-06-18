@@ -1,19 +1,18 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Application FastAPI : expose `build_workflow` (SPEC.md section 5) sur HTTP.
+"""FastAPI application: exposes `build_workflow` (SPEC.md section 5) over HTTP.
 
-Sert deux roles :
+Serves two roles:
 
-- API JSON/SSE sous `/api/*` (`src/api/runs.py`, `history.py`, `meta.py`),
-  consommee par le frontend React (`frontend/`).
-- En production (image Docker, `infra/`), sert aussi le build statique du
-  frontend (`frontend/dist/`) si present, pour n'exposer qu'un seul service
-  Container Apps.
+- JSON/SSE API under `/api/*` (`src/api/runs.py`, `history.py`, `meta.py`),
+  consumed by the React frontend (`frontend/`).
+- In production (Docker image, `infra/`), also serves the frontend's static
+  build (`frontend/dist/`) if present, so that only a single Container Apps
+  service needs to be exposed.
 
-Lancement local : `uvicorn src.api.app:app --reload` (cf. README.md). Les
-origines CORS par defaut couvrent le serveur de dev Vite
-(`npm run dev`, port 5173) ; en production le frontend est servi en
-same-origin et CORS n'est pas necessaire.
+Local launch: `uvicorn src.api.app:app --reload` (see README.md). The
+default CORS origins cover the Vite dev server (`npm run dev`, port 5173);
+in production the frontend is served same-origin and CORS is not needed.
 """
 
 from __future__ import annotations

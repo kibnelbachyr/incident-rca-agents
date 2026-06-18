@@ -1,21 +1,21 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Construction du graphe `WorkflowBuilder` (SPEC.md section 5).
+"""Construction of the `WorkflowBuilder` graph (SPEC.md section 5).
 
-Topologie::
+Topology::
 
     LogAnalyzer -> IncidentExtractor -> KBSearch -> RootCause --[switch]--+
                           ^                                               |
-                          | confiance < seuil ET loop_count < max         | sinon
+                          | confiance < threshold AND loop_count < max    | otherwise
                           +------------------ GatherEvidence <------------+
                                                                            v
                                                               HumanApproval (HITL)
-                                                                           | approuve
+                                                                           | approved
                                                                            v
                                                           Remediation -> Summary
 
-`needs_more_evidence` implemente l'arete conditionnelle de la boucle de
-reflexion (bornee par `MAX_REFLECTION_LOOPS`) ; la porte HITL est geree par
+`needs_more_evidence` implements the conditional edge of the reflection
+loop (bounded by `MAX_REFLECTION_LOOPS`); the HITL gate is handled by
 `HumanApprovalExecutor` via `ctx.request_info`/`@response_handler`.
 """
 
@@ -46,16 +46,17 @@ from src.tools.knowledge_base import get_knowledge_base
 
 
 def build_workflow(settings: Settings, *, scenario: str = "db_pool") -> Workflow:
-    """Construit le workflow complet a partir des parametres d'orchestration.
+    """Builds the complete workflow from the orchestration settings.
 
-    Modele "leger" pour les taches mecaniques (LogAnalyzer, IncidentExtractor,
-    KBSearch, Summary) et "fort" pour RootCause/Remediation (CLAUDE.md,
-    SPEC.md section 2). `LogAnalyzer` et `KBSearch` sont partages entre leur
-    noeud de pipeline et `GatherEvidenceExecutor` pour que le compteur d'appels
-    du `StubChatClient` (1er passage / 2e passage) soit coherent en mode hors-ligne.
+    "Light" model for mechanical tasks (LogAnalyzer, IncidentExtractor,
+    KBSearch, Summary) and "strong" model for RootCause/Remediation
+    (CLAUDE.md, SPEC.md section 2). `LogAnalyzer` and `KBSearch` are shared
+    between their pipeline node and `GatherEvidenceExecutor` so that the
+    `StubChatClient` call counter (1st pass / 2nd pass) stays consistent in
+    offline mode.
 
-    `scenario` selectionne le jeu de reponses canon rejoue par `StubChatClient`
-    en mode hors-ligne (cf. `src.scenarios`) ; sans effet en mode Azure OpenAI reel.
+    `scenario` selects the canonical response set replayed by `StubChatClient`
+    in offline mode (see `src.scenarios`); no effect in real Azure OpenAI mode.
     """
 
     light_client = get_chat_client(settings, light=True, scenario=scenario)

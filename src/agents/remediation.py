@@ -1,11 +1,11 @@
 # Copyright (c) Microsoft. All rights reserved.
 
-"""Agent Remediation (SPEC.md section 4.5).
+"""Remediation agent (SPEC.md section 4.5).
 
-Propose un plan de remediation priorise. Invoque uniquement APRES validation
-humaine (porte HITL de l'orchestrateur, SPEC.md section 5) ; produit
-uniquement un plan affiche, aucune action n'est executee sur un vrai systeme
-(CLAUDE.md - contraintes a ne pas contourner).
+Proposes a prioritized remediation plan. Invoked only AFTER human approval
+(orchestrator's HITL gate, SPEC.md section 5); produces only a displayed
+plan, no action is ever executed on a real system (CLAUDE.md - constraints
+not to bypass).
 """
 
 from __future__ import annotations
@@ -13,39 +13,39 @@ from __future__ import annotations
 from src.agents.base import StructuredAgent
 from src.models import Incident, KBMatches, RemediationPlan, RootCauseHypothesis
 
-INSTRUCTIONS = """Tu es l'agent Remediation d'un systeme de diagnostic d'incidents de paiement.
+INSTRUCTIONS = """You are the Remediation agent of a payment incident diagnosis system.
 
-Ton role : a partir de l'incident, de la cause racine confirmee et des
-precedents similaires, proposer un plan de remediation priorise. Ce plan est
-uniquement PROPOSE pour affichage a un humain : aucune action n'est executee
-automatiquement sur un systeme reel.
+Your role: from the incident, the confirmed root cause and similar
+precedents, propose a prioritized remediation plan. This plan is only
+PROPOSED for display to a human: no action is automatically executed on a
+real system.
 
-Produis un objet JSON avec trois listes d'actions concretes et actionnables :
-- "immediat": actions a effectuer en priorite absolue pour stopper l'incident
-  (ex. rollback, restauration d'une configuration) ;
-- "court_terme": ameliorations a apporter dans les jours suivants pour eviter
-  une recidive immediate (ex. alertes, timeouts) ;
-- "long_terme": changements structurels/process pour prevenir des incidents
-  similaires (ex. gates de revue, tests de charge).
+Produce a JSON object with three lists of concrete, actionable items:
+- "immediat": actions to perform with absolute priority to stop the incident
+  (e.g. rollback, restoring a configuration);
+- "court_terme": improvements to make in the following days to avoid an
+  immediate recurrence (e.g. alerts, timeouts);
+- "long_terme": structural/process changes to prevent similar incidents
+  (e.g. review gates, load tests).
 
-Inspire-toi des resolutions des precedents similaires quand elles sont
-pertinentes. Reponds UNIQUEMENT avec un objet JSON valide conforme au schema
-fourni, sans texte ni balises Markdown autour."""
+Draw on the resolutions of similar precedents when relevant. Respond ONLY
+with a valid JSON object conforming to the provided schema, with no
+surrounding text or Markdown tags."""
 
 
 def build_prompt(incident: Incident, root_cause: RootCauseHypothesis, kb_matches: KBMatches) -> str:
     return (
-        "Incident structure :\n"
+        "Structured incident:\n"
         f"{incident.model_dump_json(indent=2)}\n\n"
-        "Cause racine confirmee :\n"
+        "Confirmed root cause:\n"
         f"{root_cause.model_dump_json(indent=2)}\n\n"
-        "Precedents similaires :\n"
+        "Similar precedents:\n"
         f"{kb_matches.model_dump_json(indent=2)}"
     )
 
 
 class RemediationAgent(StructuredAgent[RemediationPlan]):
-    """Plan de mitigation + correctif, derriere HITL (agent 5/6)."""
+    """Mitigation + fix plan, behind HITL (agent 5/6)."""
 
     name = "Remediation"
     instructions = INSTRUCTIONS
