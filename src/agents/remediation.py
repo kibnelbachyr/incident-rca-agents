@@ -28,9 +28,13 @@ Produce a JSON object with three lists of concrete, actionable items:
 - "long_terme": structural/process changes to prevent similar incidents
   (e.g. review gates, load tests).
 
-Draw on the resolutions of similar precedents when relevant. Respond ONLY
-with a valid JSON object conforming to the provided schema, with no
-surrounding text or Markdown tags."""
+Draw on the resolutions of similar precedents when relevant.
+
+Always write all text content in English, regardless of the language used
+in the incident, root cause, or precedents you receive.
+
+Respond ONLY with a valid JSON object conforming to the provided schema,
+with no surrounding text or Markdown tags."""
 
 
 def build_prompt(incident: Incident, root_cause: RootCauseHypothesis, kb_matches: KBMatches) -> str:

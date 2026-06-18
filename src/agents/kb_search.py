@@ -29,6 +29,10 @@ For each retained precedent (at most those provided as candidates), give:
 - "resolution": a short summary of the resolution applied for this precedent.
 
 Keep all provided candidates, ranked from most to least relevant.
+
+Always write all text content in English, regardless of the language used
+in the incident or the candidate precedents you receive.
+
 Respond ONLY with a valid JSON object conforming to the provided schema,
 with no surrounding text or Markdown tags."""
 

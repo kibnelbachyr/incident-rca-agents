@@ -32,9 +32,13 @@ Produce a JSON object with:
   on the next round; empty list if you are confident.
 
 Be honest about your uncertainty: a low score with precise missing evidence
-is better than a hasty conclusion. Respond ONLY with a valid JSON object
-conforming to the provided schema, with no surrounding text or Markdown
-tags."""
+is better than a hasty conclusion.
+
+Always write all text content in English, regardless of the language used
+in the incident, log analysis, or precedents you receive.
+
+Respond ONLY with a valid JSON object conforming to the provided schema,
+with no surrounding text or Markdown tags."""
 
 
 def build_prompt(

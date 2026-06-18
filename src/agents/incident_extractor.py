@@ -27,6 +27,9 @@ Produce a JSON object with:
   "14:23 -> 14:41 (resolved)";
 - "symptomes": list of symptoms observed by users/operators.
 
+Always write all text content in English, regardless of the language used
+in the log analysis or any other input you receive.
+
 Respond ONLY with a valid JSON object conforming to the provided schema,
 with no surrounding text or Markdown tags."""
 

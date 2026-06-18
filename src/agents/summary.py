@@ -32,6 +32,9 @@ Produce a JSON object with:
   with the sections "ROOT CAUSE (confidence X)", "REMEDIATION" (numbered
   list) and "RELATED PRECEDENT".
 
+Always write all text content in English, regardless of the language used
+in the incident, root cause, remediation plan, or precedents you receive.
+
 Respond ONLY with a valid JSON object conforming to the provided schema,
 with no surrounding text or Markdown tags."""
 

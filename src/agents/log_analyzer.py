@@ -26,6 +26,9 @@ investigate), produce:
 - "correlated_events": list of temporal correlations between events
   (e.g. a configuration change followed shortly after by a degradation).
 
+Always write all text content in English, regardless of the language used
+in the input logs or any other data you receive.
+
 Respond ONLY with a valid JSON object conforming to the provided schema,
 with no surrounding text or Markdown tags."""
 
